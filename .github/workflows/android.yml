@@ -32,6 +32,28 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
+      - name: Prepare signing keystore
+        run: |
+          if [ -n "${{ secrets.KEYLET_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.KEYLET_KEYSTORE_BASE64 }}" | base64 -d > /tmp/keylet-release.keystore
+            echo "KEYLET_KEYSTORE_PATH=/tmp/keylet-release.keystore" >> $GITHUB_ENV
+            echo "KEYLET_KEYSTORE_PASSWORD=${{ secrets.KEYLET_KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+            echo "KEYLET_KEY_ALIAS=${{ secrets.KEYLET_KEY_ALIAS }}" >> $GITHUB_ENV
+            echo "KEYLET_KEY_PASSWORD=${{ secrets.KEYLET_KEY_PASSWORD }}" >> $GITHUB_ENV
+          else
+            keytool -genkeypair -v \
+              -keystore /tmp/keylet-release.keystore \
+              -storetype PKCS12 \
+              -alias keylet \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass keylet-ci -keypass keylet-ci \
+              -dname "CN=Keylet, O=Keylet"
+            echo "KEYLET_KEYSTORE_PATH=/tmp/keylet-release.keystore" >> $GITHUB_ENV
+            echo "KEYLET_KEYSTORE_PASSWORD=keylet-ci" >> $GITHUB_ENV
+            echo "KEYLET_KEY_ALIAS=keylet" >> $GITHUB_ENV
+            echo "KEYLET_KEY_PASSWORD=keylet-ci" >> $GITHUB_ENV
+          fi
+
       - name: Run unit tests & build Release APK
         working-directory: android
         run: gradle testDebugUnitTest assembleRelease --no-daemon
