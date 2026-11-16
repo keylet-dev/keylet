@@ -39,6 +39,7 @@ import {
   encryptNewLoginCipher,
 } from '@keylet/core';
 import type {
+  AccountSummary,
   MatchedCipher,
   RuntimeRequest,
   RuntimeResponse,
@@ -46,10 +47,20 @@ import type {
   VaultStatus,
 } from '@keylet/core';
 
-const LOCAL_ACCOUNT_KEY = 'keylet_account';
-const LOCAL_SNAPSHOT_KEY = 'keylet_sync_snapshot';
+const LOCAL_ACCOUNTS_KEY = 'keylet_accounts';
+const LOCAL_ACTIVE_ACCOUNT_KEY = 'keylet_active_account';
+const LEGACY_ACCOUNT_KEY = 'keylet_account';
+const LEGACY_SNAPSHOT_KEY = 'keylet_sync_snapshot';
 const SESSION_KEY = 'keylet_session';
 const AUTOLOCK_ALARM = 'keylet-autolock';
+
+function makeAccountId(serverUrl: string, email: string): string {
+  return `${serverUrl}|${email.trim().toLowerCase()}`;
+}
+
+function snapshotStorageKey(accountId: string): string {
+  return `keylet_snapshot_${accountId}`;
+}
 
 interface StoredAccount {
   serverUrl: string;
@@ -80,18 +91,67 @@ let memRefreshToken: string | null = null;
 let memCiphers: DecryptedCipher[] = [];
 let memFolders: DecryptedFolder[] = [];
 
-async function getStoredAccount(): Promise<StoredAccount | null> {
-  const res = await browser.storage.local.get(LOCAL_ACCOUNT_KEY);
-  return (res[LOCAL_ACCOUNT_KEY] as StoredAccount | undefined) ?? null;
+async function getAccountStore(): Promise<{
+  accounts: Record<string, StoredAccount>;
+  activeId: string | null;
+}> {
+  const res = await browser.storage.local.get([
+    LOCAL_ACCOUNTS_KEY,
+    LOCAL_ACTIVE_ACCOUNT_KEY,
+    LEGACY_ACCOUNT_KEY,
+    LEGACY_SNAPSHOT_KEY,
+  ]);
+
+  let accounts =
+    (res[LOCAL_ACCOUNTS_KEY] as Record<string, StoredAccount> | undefined) ?? {};
+  let activeId =
+    (res[LOCAL_ACTIVE_ACCOUNT_KEY] as string | undefined) ?? null;
+
+  // Migrate legacy single-account storage automatically
+  const legacy = res[LEGACY_ACCOUNT_KEY] as StoredAccount | undefined;
+  if (legacy && Object.keys(accounts).length === 0) {
+    const id = makeAccountId(legacy.serverUrl, legacy.email);
+    accounts = { [id]: legacy };
+    activeId = id;
+    const toSet: Record<string, unknown> = {
+      [LOCAL_ACCOUNTS_KEY]: accounts,
+      [LOCAL_ACTIVE_ACCOUNT_KEY]: activeId,
+    };
+    if (res[LEGACY_SNAPSHOT_KEY]) {
+      toSet[snapshotStorageKey(id)] = res[LEGACY_SNAPSHOT_KEY];
+    }
+    await browser.storage.local.set(toSet);
+    await browser.storage.local.remove([LEGACY_ACCOUNT_KEY, LEGACY_SNAPSHOT_KEY]);
+  }
+
+  return { accounts, activeId };
 }
 
-async function saveStoredAccount(account: StoredAccount): Promise<void> {
-  await browser.storage.local.set({ [LOCAL_ACCOUNT_KEY]: account });
+async function getStoredAccount(): Promise<StoredAccount | null> {
+  const { accounts, activeId } = await getAccountStore();
+  if (!activeId) return null;
+  return accounts[activeId] ?? null;
+}
+
+async function saveStoredAccount(
+  account: StoredAccount,
+  makeActive = true,
+): Promise<void> {
+  const { accounts, activeId } = await getAccountStore();
+  const id = makeAccountId(account.serverUrl, account.email);
+  accounts[id] = account;
+  await browser.storage.local.set({
+    [LOCAL_ACCOUNTS_KEY]: accounts,
+    [LOCAL_ACTIVE_ACCOUNT_KEY]: makeActive ? id : activeId ?? id,
+  });
 }
 
 async function getSyncSnapshot(): Promise<EncryptedSyncResponse | null> {
-  const res = await browser.storage.local.get(LOCAL_SNAPSHOT_KEY);
-  return (res[LOCAL_SNAPSHOT_KEY] as EncryptedSyncResponse | undefined) ?? null;
+  const { activeId } = await getAccountStore();
+  if (!activeId) return null;
+  const key = snapshotStorageKey(activeId);
+  const res = await browser.storage.local.get(key);
+  return (res[key] as EncryptedSyncResponse | undefined) ?? null;
 }
 
 async function persistSession(): Promise<void> {
@@ -204,9 +264,12 @@ async function performSync(account: StoredAccount): Promise<void> {
   memFolders = decrypted.folders;
 
   account.lastSyncAt = Date.now();
+  const id = makeAccountId(account.serverUrl, account.email);
+  const { accounts } = await getAccountStore();
+  accounts[id] = account;
   await browser.storage.local.set({
-    [LOCAL_ACCOUNT_KEY]: account,
-    [LOCAL_SNAPSHOT_KEY]: syncRes,
+    [LOCAL_ACCOUNTS_KEY]: accounts,
+    [snapshotStorageKey(id)]: syncRes,
   });
   await persistSession();
 }
@@ -216,7 +279,8 @@ async function handleLogin(
 ): Promise<VaultStatus> {
   const serverUrl = normalizeServerUrl(req.serverUrl);
   const email = req.email.trim().toLowerCase();
-  const existing = await getStoredAccount();
+  const { accounts } = await getAccountStore();
+  const existing = accounts[makeAccountId(serverUrl, email)] ?? null;
   const deviceId = existing?.deviceId ?? crypto.randomUUID();
 
   const kdfConfig = await prelogin(serverUrl, email);
@@ -358,10 +422,21 @@ async function handleUnlockWithPin(pin: string): Promise<VaultStatus> {
 
 async function getStatus(): Promise<VaultStatus> {
   await restoreSessionIfNeeded();
-  const account = await getStoredAccount();
+  const { accounts, activeId } = await getAccountStore();
+  const accountList: AccountSummary[] = Object.entries(accounts).map(
+    ([id, acc]) => ({
+      id,
+      serverUrl: acc.serverUrl,
+      email: acc.email,
+    }),
+  );
+  const account = activeId ? accounts[activeId] ?? null : null;
+
   if (!account) {
     return {
       state: 'logged_out',
+      activeAccountId: null,
+      accounts: accountList,
       serverUrl: null,
       email: null,
       lastSyncAt: null,
@@ -374,6 +449,8 @@ async function getStatus(): Promise<VaultStatus> {
 
   return {
     state: memSymKey ? 'unlocked' : 'locked',
+    activeAccountId: activeId,
+    accounts: accountList,
     serverUrl: account.serverUrl,
     email: account.email,
     lastSyncAt: account.lastSyncAt,
@@ -465,10 +542,30 @@ async function handleMessage(
       }
       case 'LOGOUT': {
         await lockVault();
-        await browser.storage.local.remove([
-          LOCAL_ACCOUNT_KEY,
-          LOCAL_SNAPSHOT_KEY,
-        ]);
+        const { accounts, activeId } = await getAccountStore();
+        const targetId = req.accountId ?? activeId;
+        if (targetId && accounts[targetId]) {
+          delete accounts[targetId];
+          await browser.storage.local.remove(snapshotStorageKey(targetId));
+        }
+        const remainingIds = Object.keys(accounts);
+        const nextActive =
+          targetId === activeId ? remainingIds[0] ?? null : activeId;
+        await browser.storage.local.set({
+          [LOCAL_ACCOUNTS_KEY]: accounts,
+          [LOCAL_ACTIVE_ACCOUNT_KEY]: nextActive,
+        });
+        return { ok: true, data: await getStatus() };
+      }
+      case 'SWITCH_ACCOUNT': {
+        await lockVault();
+        const { accounts } = await getAccountStore();
+        if (!accounts[req.accountId]) {
+          throw new Error('Account not found');
+        }
+        await browser.storage.local.set({
+          [LOCAL_ACTIVE_ACCOUNT_KEY]: req.accountId,
+        });
         return { ok: true, data: await getStatus() };
       }
       case 'SYNC_VAULT': {

@@ -230,6 +230,7 @@ export interface CipherInput {
   notes?: string | null;
   favorite?: boolean;
   folderId?: string | null;
+  fields?: { name: string; value: string; type: number }[];
   login?: {
     username?: string | null;
     password?: string | null;
@@ -279,9 +280,18 @@ export async function encryptCipherPayload(
   input: CipherInput,
   key: SymmetricKey,
 ): Promise<CreateCipherPayload> {
-  const [encName, encNotes] = await Promise.all([
+  const [encName, encNotes, encFields] = await Promise.all([
     encryptString(input.name.trim() || 'Untitled', key),
     encryptOpt(input.notes, key),
+    input.fields?.length
+      ? Promise.all(
+          input.fields.map(async (f) => ({
+            name: await encryptString(f.name, key),
+            value: await encryptString(f.value, key),
+            type: f.type,
+          })),
+        )
+      : Promise.resolve(undefined),
   ]);
 
   const payload: CreateCipherPayload = {
@@ -290,6 +300,7 @@ export async function encryptCipherPayload(
     notes: encNotes,
     favorite: Boolean(input.favorite),
     folderId: input.folderId ?? null,
+    fields: encFields,
   };
 
   if (input.type === CipherType.Login) {

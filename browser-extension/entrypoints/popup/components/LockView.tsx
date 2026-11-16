@@ -13,10 +13,18 @@ import { KeyletLogo } from './KeyletLogo';
 interface LockViewProps {
   status: VaultStatus;
   onUnlock: (status: VaultStatus) => void;
+  onSwitchAccount: (accountId: string) => void;
+  onAddAccount: () => void;
   onLogout: (status: VaultStatus) => void;
 }
 
-export function LockView({ status, onUnlock, onLogout }: LockViewProps) {
+export function LockView({
+  status,
+  onUnlock,
+  onSwitchAccount,
+  onAddAccount,
+  onLogout,
+}: LockViewProps) {
   const [usePin, setUsePin] = useState(status.hasPin);
   const [secret, setSecret] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -121,6 +129,38 @@ export function LockView({ status, onUnlock, onLogout }: LockViewProps) {
           {usePin ? 'Use Master Password instead' : 'Use Quick Unlock PIN'}
         </Button>
       )}
+
+      {status.accounts.length > 1 && (
+        <div className="field-group">
+          <span className="field-label">Switch Account</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {status.accounts.map((acc) => (
+              <button
+                key={acc.id}
+                type="button"
+                className="btn"
+                style={{
+                  height: 28,
+                  minHeight: 28,
+                  padding: '0 10px',
+                  fontSize: 11.5,
+                  borderColor:
+                    acc.id === status.activeAccountId
+                      ? 'var(--accent)'
+                      : undefined,
+                }}
+                onClick={() => onSwitchAccount(acc.id)}
+              >
+                {acc.email}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <Button type="button" className="btn" onClick={onAddAccount}>
+        Add Another Account
+      </Button>
 
       <Button type="button" className="btn" onClick={() => handleLogout()}>
         <LogOut size={14} />

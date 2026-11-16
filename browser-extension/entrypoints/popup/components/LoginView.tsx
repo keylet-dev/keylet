@@ -11,16 +11,17 @@ import {
   SegmentedControlIndicator,
   SegmentedControlItem,
 } from '@ui-sdk/react/segmented-control';
-import { Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { SERVER_PRESETS, type ServerPreset, type VaultStatus } from '@keylet/core';
 import { RuntimeError, sendRuntimeMessage } from '../ipc';
 import { KeyletLogo } from './KeyletLogo';
 
 interface LoginViewProps {
   onSuccess: (status: VaultStatus) => void;
+  onCancel?: () => void;
 }
 
-export function LoginView({ onSuccess }: LoginViewProps) {
+export function LoginView({ onSuccess, onCancel }: LoginViewProps) {
   const [preset, setPreset] = useState<ServerPreset['id']>('us');
   const [customUrl, setCustomUrl] = useState('https://');
   const [email, setEmail] = useState('');
@@ -72,6 +73,16 @@ export function LoginView({ onSuccess }: LoginViewProps) {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+        {onCancel && (
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={onCancel}
+            aria-label="Cancel"
+          >
+            <ArrowLeft size={16} />
+          </button>
+        )}
         <KeyletLogo size={36} />
         <div>
           <div style={{ fontSize: 15, fontWeight: 600 }}>Keylet</div>

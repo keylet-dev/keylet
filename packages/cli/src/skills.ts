@@ -21,13 +21,15 @@ If locked, ask the user to unlock in their terminal (\`keylet auth unlock\`)—n
 
 ## Command Groups
 
-### Auth & Session
+### Auth & Multi-Account Session
 \`\`\`bash
 keylet auth login [--server <url>] [--email <email>] [--password-env <VAR>] [--2fa <code>]
 keylet auth unlock [--password-env <VAR>]
 keylet auth lock
 keylet auth logout
 keylet auth status
+keylet auth accounts [--format table|json|yaml]
+keylet auth switch <emailOrId>
 \`\`\`
 
 ### Items & TOTP

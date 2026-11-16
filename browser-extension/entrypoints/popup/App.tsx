@@ -37,7 +37,7 @@ import { SettingsView } from './components/SettingsView';
 import { sendRuntimeMessage } from './ipc';
 
 type FilterTab = 'all' | 'logins' | 'notes' | 'cards' | 'favorites';
-type SubView = 'list' | 'generator' | 'settings' | 'create' | 'edit';
+type SubView = 'list' | 'generator' | 'settings' | 'create' | 'edit' | 'add_account';
 
 const FILTER_TABS: FilterTab[] = ['all', 'logins', 'notes', 'cards', 'favorites'];
 
@@ -282,11 +282,17 @@ export function App() {
     );
   }
 
-  if (status.state === 'logged_out') {
+  if (status.state === 'logged_out' || subView === 'add_account') {
     return (
       <LoginView
+        onCancel={
+          status.accounts.length > 0
+            ? () => setSubView('list')
+            : undefined
+        }
         onSuccess={async (next) => {
           setStatus(next);
+          setSubView('list');
           if (next.state === 'unlocked') await loadVault();
         }}
       />
@@ -301,6 +307,14 @@ export function App() {
           setStatus(next);
           if (next.state === 'unlocked') await loadVault();
         }}
+        onSwitchAccount={async (accountId) => {
+          const next = await sendRuntimeMessage<VaultStatus>({
+            type: 'SWITCH_ACCOUNT',
+            accountId,
+          });
+          setStatus(next);
+        }}
+        onAddAccount={() => setSubView('add_account')}
         onLogout={(next) => setStatus(next)}
       />
     );
@@ -328,6 +342,7 @@ export function App() {
             setStatus(next);
             if (next.state === 'unlocked') void loadVault();
           }}
+          onAddAccount={() => setSubView('add_account')}
           onToast={showToast}
         />
         {toast && <div className="toast-pill">{toast}</div>}

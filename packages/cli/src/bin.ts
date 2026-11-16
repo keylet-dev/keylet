@@ -28,7 +28,9 @@ import { ensureDaemon, ipcRequest, isDaemonRunning } from './client.js';
 import {
   type CliAccount,
   clearStoredAccount,
+  listAccounts,
   readAccount,
+  setActiveAccountId,
   writeAccount,
 } from './config.js';
 import { startDaemon } from './daemon.js';
@@ -83,7 +85,9 @@ Subcommands:
   unlock [--password-env <VAR>]
   lock
   logout
-  status`);
+  status
+  accounts [--format table|json|yaml] [--json]
+  switch <emailOrId>`);
       break;
     case 'item':
       console.log(`Usage: keylet item <subcommand>
@@ -330,6 +334,49 @@ async function cmdStatus(): Promise<void> {
   );
   console.log(
     `Status: ${st.unlocked ? 'unlocked' : 'locked'}\nServer: ${account.serverUrl}\nEmail:  ${account.email}\nItems:  ${st.cipherCount}`,
+  );
+}
+
+async function cmdAccounts(args: string[]): Promise<void> {
+  const accounts = listAccounts();
+  const format = resolveOutputFormat(args, 'table');
+  if (format === 'json') {
+    console.log(JSON.stringify(accounts, null, 2));
+    return;
+  }
+  if (format === 'yaml') {
+    console.log(toYaml(accounts));
+    return;
+  }
+  console.log(
+    renderTable(accounts, [
+      { header: 'ACTIVE', value: (a) => (a.active ? '*' : '') },
+      { header: 'ID', value: (a) => a.id },
+      { header: 'EMAIL', value: (a) => a.account.email },
+      { header: 'SERVER', value: (a) => a.account.serverUrl },
+    ]),
+  );
+}
+
+async function cmdSwitchAccount(args: string[]): Promise<void> {
+  const query = args.join(' ').trim().toLowerCase();
+  if (!query) throw new Error('Usage: keylet auth switch <emailOrId>');
+  const accounts = listAccounts();
+  const match = accounts.find(
+    (a) =>
+      a.id.toLowerCase() === query ||
+      a.account.email.toLowerCase() === query ||
+      a.account.email.toLowerCase().includes(query),
+  );
+  if (!match) {
+    throw new Error(`No saved account matching "${query}"`);
+  }
+  if (await isDaemonRunning()) {
+    await ipcRequest('POST', '/lock').catch(() => {});
+  }
+  setActiveAccountId(match.id);
+  console.log(
+    `Switched to ${match.account.email} (${match.account.serverUrl}). Run \`keylet auth unlock\` to unlock.`,
   );
 }
 
@@ -644,6 +691,12 @@ async function handleAuthGroup(args: string[]): Promise<void> {
       break;
     case 'status':
       await cmdStatus();
+      break;
+    case 'accounts':
+      await cmdAccounts(rest);
+      break;
+    case 'switch':
+      await cmdSwitchAccount(rest);
       break;
     default:
       throw new Error(`Unknown auth subcommand: ${sub}`);

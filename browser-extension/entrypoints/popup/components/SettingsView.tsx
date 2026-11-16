@@ -10,7 +10,7 @@ import {
   SegmentedControlIndicator,
   SegmentedControlItem,
 } from '@ui-sdk/react/segmented-control';
-import { ArrowLeft, Eye, EyeOff, KeyRound, Lock, LogOut, RefreshCw, Upload } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff, KeyRound, Lock, LogOut, Plus, RefreshCw, Upload } from 'lucide-react';
 import { parseImportBytes, type VaultStatus } from '@keylet/core';
 import { sendRuntimeMessage } from '../ipc';
 
@@ -18,6 +18,7 @@ interface SettingsViewProps {
   status: VaultStatus;
   onBack: () => void;
   onStatusChange: (status: VaultStatus) => void;
+  onAddAccount: () => void;
   onToast: (msg: string) => void;
 }
 
@@ -41,6 +42,7 @@ export function SettingsView({
   status,
   onBack,
   onStatusChange,
+  onAddAccount,
   onToast,
 }: SettingsViewProps) {
   const [pinInput, setPinInput] = useState('');
@@ -171,6 +173,56 @@ export function SettingsView({
               </div>
             </div>
             <span className="kbd">{status.cipherCount} items</span>
+          </div>
+        </div>
+
+        <div className="field-group">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span className="field-label">Accounts ({status.accounts.length})</span>
+            <button
+              type="button"
+              className="btn"
+              style={{ height: 24, minHeight: 24, padding: '0 8px', fontSize: 11 }}
+              onClick={onAddAccount}
+            >
+              <Plus size={12} />
+              Add Account
+            </button>
+          </div>
+          <div className="detail-card">
+            {status.accounts.map((acc) => {
+              const isActive = acc.id === status.activeAccountId;
+              return (
+                <div className="detail-row" key={acc.id}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div className="detail-row-val" style={{ fontSize: 12.5 }}>
+                      {acc.email}
+                    </div>
+                    <div className="detail-row-label" style={{ marginBottom: 0 }}>
+                      {acc.serverUrl}
+                    </div>
+                  </div>
+                  {isActive ? (
+                    <span className="match-badge">Active</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn"
+                      style={{ height: 26, minHeight: 26, padding: '0 8px', fontSize: 11.5 }}
+                      onClick={async () => {
+                        const next = await sendRuntimeMessage<VaultStatus>({
+                          type: 'SWITCH_ACCOUNT',
+                          accountId: acc.id,
+                        });
+                        onStatusChange(next);
+                      }}
+                    >
+                      Switch
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 

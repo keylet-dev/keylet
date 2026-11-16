@@ -216,6 +216,7 @@ export interface CreateCipherPayload {
   notes?: string | null;
   favorite?: boolean;
   folderId?: string | null;
+  fields?: { name: string; value: string; type: number }[];
   login?: {
     username?: string | null;
     password?: string | null;

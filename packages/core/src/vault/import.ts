@@ -66,6 +66,48 @@ export function parseCsv(text: string): string[][] {
   return rows;
 }
 
+interface OnePasswordFieldValue {
+  totp?: string;
+  string?: string;
+  concealed?: string;
+  url?: string;
+  email?: string | { email_address?: string };
+  menu?: string;
+  phone?: string;
+  date?: number | string;
+  monthYear?: number | string;
+  creditCardNumber?: string;
+  sshKey?: {
+    privateKey?: string;
+    publicKey?: string;
+    metadata?: {
+      privateKey?: string;
+      publicKey?: string;
+      fingerprint?: string;
+    };
+  };
+}
+
+function extract1PFieldText(v: OnePasswordFieldValue | undefined): {
+  text: string | null;
+  hidden: boolean;
+} {
+  if (!v) return { text: null, hidden: false };
+  if (v.concealed) return { text: v.concealed, hidden: true };
+  if (v.string) return { text: v.string, hidden: false };
+  if (v.url) return { text: v.url, hidden: false };
+  if (typeof v.email === 'string') return { text: v.email, hidden: false };
+  if (v.email && typeof v.email === 'object' && v.email.email_address) {
+    return { text: v.email.email_address, hidden: false };
+  }
+  if (v.menu) return { text: v.menu, hidden: false };
+  if (v.phone) return { text: v.phone, hidden: false };
+  if (v.creditCardNumber) return { text: v.creditCardNumber, hidden: true };
+  if (v.monthYear != null) return { text: String(v.monthYear), hidden: false };
+  if (v.date != null) return { text: String(v.date), hidden: false };
+  return { text: null, hidden: false };
+}
+
 function parse1PasswordJson(raw: string): ImportParseResult {
   const parsed = JSON.parse(raw) as {
     accounts?: Array<{
@@ -89,21 +131,7 @@ function parse1PasswordJson(raw: string): ImportParseResult {
               fields?: Array<{
                 title?: string;
                 id?: string;
-                value?: {
-                  totp?: string;
-                  string?: string;
-                  concealed?: string;
-                  creditCardNumber?: string;
-                  sshKey?: {
-                    privateKey?: string;
-                    publicKey?: string;
-                    metadata?: {
-                      privateKey?: string;
-                      publicKey?: string;
-                      fingerprint?: string;
-                    };
-                  };
-                };
+                value?: OnePasswordFieldValue;
               }>;
             }>;
           };
@@ -125,20 +153,42 @@ function parse1PasswordJson(raw: string): ImportParseResult {
         }
         const notes = item.details?.notesPlain || null;
         const favorite = (item.favIndex ?? 0) > 0;
+        const cat = item.categoryUuid ?? '001';
 
-        // 003 = Secure Note in 1PUX
-        if (item.categoryUuid === '003') {
-          items.push({
-            type: CipherType.SecureNote,
-            name,
-            notes,
-            favorite,
-          });
-          continue;
+        const customFields: { name: string; value: string; type: number }[] = [];
+        let totp: string | null = null;
+        let sectionUsername: string | null = null;
+        let sectionPassword: string | null = null;
+
+        for (const sec of item.details?.sections ?? []) {
+          for (const f of sec.fields ?? []) {
+            if (f.value?.totp && !totp) {
+              totp = f.value.totp;
+              continue;
+            }
+            const { text, hidden } = extract1PFieldText(f.value);
+            if (!text) continue;
+            const label = (f.title || f.id || 'Field').trim();
+            const idLow = (f.id || f.title || '').toLowerCase();
+            if (!sectionUsername && (idLow === 'username' || idLow === 'user')) {
+              sectionUsername = text;
+            }
+            if (
+              !sectionPassword &&
+              (idLow === 'password' ||
+                idLow === 'credential' ||
+                idLow === 'token' ||
+                idLow === 'api_key' ||
+                hidden)
+            ) {
+              sectionPassword = text;
+            }
+            customFields.push({ name: label, value: text, type: hidden ? 1 : 0 });
+          }
         }
 
         // 114 = SSH Key in 1PUX
-        if (item.categoryUuid === '114') {
+        if (cat === '114') {
           let priv: string | null = null;
           let pub: string | null = null;
           let fp: string | null = null;
@@ -167,30 +217,69 @@ function parse1PasswordJson(raw: string): ImportParseResult {
               name,
               notes,
               favorite,
+              fields: customFields,
               sshKey: { privateKey: priv, publicKey: pub, keyFingerprint: fp },
             });
             continue;
           }
         }
 
-        const loginFields = item.details?.loginFields ?? [];
-        const username =
-          loginFields.find((f) => f.designation === 'username')?.value ?? null;
-        const password =
-          loginFields.find((f) => f.designation === 'password')?.value ??
-          item.details?.password ??
-          null;
-
-        let totp: string | null = null;
-        for (const sec of item.details?.sections ?? []) {
-          for (const f of sec.fields ?? []) {
-            if (f.value?.totp) {
-              totp = f.value.totp;
-              break;
+        // 002 = Credit Card in 1PUX
+        if (cat === '002') {
+          let cardholderName: string | null = null;
+          let brand: string | null = null;
+          let number: string | null = null;
+          let code: string | null = null;
+          let expMonth: string | null = null;
+          let expYear: string | null = null;
+          for (const sec of item.details?.sections ?? []) {
+            for (const f of sec.fields ?? []) {
+              if (f.id === 'cardholder') cardholderName = extract1PFieldText(f.value).text;
+              else if (f.id === 'type') brand = extract1PFieldText(f.value).text;
+              else if (f.id === 'ccnum') number = extract1PFieldText(f.value).text;
+              else if (f.id === 'cvv') code = extract1PFieldText(f.value).text;
+              else if (f.id === 'expiry' && f.value?.monthYear != null) {
+                const my = String(f.value.monthYear);
+                if (my.length === 6) {
+                  expYear = my.slice(0, 4);
+                  expMonth = my.slice(4, 6);
+                }
+              }
             }
           }
-          if (totp) break;
+          items.push({
+            type: CipherType.Card,
+            name,
+            notes,
+            favorite,
+            fields: customFields,
+            card: { cardholderName, brand, number, expMonth, expYear, code },
+          });
+          continue;
         }
+
+        // 003 = Secure Note, 100 = Software License, 108 = SSN
+        if (cat === '003' || cat === '100' || cat === '108') {
+          items.push({
+            type: CipherType.SecureNote,
+            name,
+            notes,
+            favorite,
+            fields: customFields,
+          });
+          continue;
+        }
+
+        const loginFields = item.details?.loginFields ?? [];
+        const username =
+          loginFields.find((f) => f.designation === 'username')?.value ||
+          sectionUsername ||
+          null;
+        const password =
+          loginFields.find((f) => f.designation === 'password')?.value ||
+          item.details?.password ||
+          sectionPassword ||
+          null;
 
         const uris = [
           ...(item.overview?.url ? [{ url: item.overview.url }] : []),
@@ -206,6 +295,7 @@ function parse1PasswordJson(raw: string): ImportParseResult {
           name,
           notes,
           favorite,
+          fields: customFields,
           login: { username, password, totp, uris },
         });
       }
