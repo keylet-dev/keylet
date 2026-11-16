@@ -1,0 +1,3 @@
+-keepattributes *Annotation*
+-keep class kotlinx.serialization.** { *; }
+-keepclassmembers class me.keylet.app.data.** { *; }
