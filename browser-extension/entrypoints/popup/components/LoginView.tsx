@@ -11,10 +11,10 @@ import {
   SegmentedControlIndicator,
   SegmentedControlItem,
 } from '@ui-sdk/react/segmented-control';
-import { Eye, EyeOff, KeyRound, ShieldCheck } from 'lucide-react';
-import { SERVER_PRESETS, type ServerPreset } from '@keylet/core';
-import type { VaultStatus } from '@keylet/core';
+import { Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { SERVER_PRESETS, type ServerPreset, type VaultStatus } from '@keylet/core';
 import { RuntimeError, sendRuntimeMessage } from '../ipc';
+import { KeyletLogo } from './KeyletLogo';
 
 interface LoginViewProps {
   onSuccess: (status: VaultStatus) => void;
@@ -72,20 +72,7 @@ export function LoginView({ onSuccess }: LoginViewProps) {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-        <div
-          style={{
-            width: 34,
-            height: 34,
-            borderRadius: 8,
-            background: 'var(--accent-soft)',
-            color: 'var(--accent)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <KeyRound size={18} />
-        </div>
+        <KeyletLogo size={36} />
         <div>
           <div style={{ fontSize: 15, fontWeight: 600 }}>Keylet</div>
           <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>

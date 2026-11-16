@@ -5,9 +5,10 @@ import {
   PasswordInputControl,
   PasswordInputToggle,
 } from '@ui-sdk/react/password-input';
-import { Eye, EyeOff, KeyRound, Lock, LogOut, Unlock } from 'lucide-react';
+import { Eye, EyeOff, KeyRound, LogOut, Unlock } from 'lucide-react';
 import type { VaultStatus } from '@keylet/core';
 import { sendRuntimeMessage } from '../ipc';
+import { KeyletLogo } from './KeyletLogo';
 
 interface LockViewProps {
   status: VaultStatus;
@@ -59,21 +60,8 @@ export function LockView({ status, onUnlock, onLogout }: LockViewProps) {
       }}
     >
       <div style={{ textAlign: 'center', marginBottom: 8 }}>
-        <div
-          style={{
-            width: 44,
-            height: 44,
-            margin: '0 auto 10px',
-            borderRadius: 12,
-            background: 'var(--bg-elevated)',
-            border: '1px solid var(--border-subtle)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'var(--accent)',
-          }}
-        >
-          <Lock size={20} />
+        <div style={{ marginBottom: 10 }}>
+          <KeyletLogo size={44} />
         </div>
         <div style={{ fontSize: 15, fontWeight: 600 }}>Vault Locked</div>
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>

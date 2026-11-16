@@ -218,6 +218,13 @@ export default defineContentScript({
           max-height: 240px;
           overflow-y: auto;
         }
+        .list::-webkit-scrollbar {
+          width: 5px;
+        }
+        .list::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.16);
+          border-radius: 999px;
+        }
         .item {
           padding: 7px 9px;
           border-radius: 8px;
@@ -312,7 +319,7 @@ export default defineContentScript({
       const list = document.createElement('div');
       list.className = 'list';
 
-      for (const m of matches.slice(0, 5)) {
+      for (const m of matches) {
         const row = document.createElement('div');
         row.className = 'item';
 
@@ -409,7 +416,10 @@ export default defineContentScript({
 
       const title = document.createElement('div');
       title.className = 'title';
-      title.textContent = 'Save login to Keylet?';
+      title.style.display = 'flex';
+      title.style.alignItems = 'center';
+      title.style.gap = '7px';
+      title.innerHTML = `<span style="width:18px;height:18px;border-radius:5px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);display:inline-flex;align-items:center;justify-content:center;color:#fff;flex-shrink:0;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg></span><span>Save login to Keylet?</span>`;
 
       const sub = document.createElement('div');
       sub.className = 'sub';

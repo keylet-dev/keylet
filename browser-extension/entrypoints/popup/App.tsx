@@ -30,6 +30,7 @@ import type {
 import { CipherDetail } from './components/CipherDetail';
 import { CipherForm } from './components/CipherForm';
 import { GeneratorView } from './components/GeneratorView';
+import { KeyletLogo } from './components/KeyletLogo';
 import { LockView } from './components/LockView';
 import { LoginView } from './components/LoginView';
 import { SettingsView } from './components/SettingsView';
@@ -273,7 +274,7 @@ export function App() {
   if (!status) {
     return (
       <div className="empty-state">
-        <KeyRound size={24} color="var(--accent)" />
+        <KeyletLogo size={36} />
         <span>Loading Keylet…</span>
       </div>
     );
