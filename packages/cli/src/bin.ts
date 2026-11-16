@@ -40,27 +40,72 @@ import {
 
 const BIN_PATH = fileURLToPath(import.meta.url);
 
-function printHelp(): void {
+function printRootHelp(): void {
   console.log(`keylet - Keyboard-first Bitwarden & Vaultwarden CLI
 
 Usage:
-  keylet login [--server <url>] [--email <email>] [--password-env <VAR>]
-  keylet unlock [--password-env <VAR>]
-  keylet lock
-  keylet logout
-  keylet status
-  keylet sync
-  keylet list [--type login|note|card|ssh] [--json] [query]
-  keylet get <query> [--field password|username|totp|public|private|notes|all] [--json]
-  keylet totp <query>
-  keylet add --name <name> [--type login|note|ssh] [--username <u>] [--password <p>] [--uri <url>] [--totp <secret>] [--generate-ssh]
-  keylet rm <query> [--permanent]
-  keylet folder <list|add|rm> [nameOrId]
-  keylet ssh-agent
-  keylet import <file.json|file.csv>
-  keylet generate [--length 20] [--no-symbols] [--no-numbers] [--avoid-ambiguous]
-  keylet run [--from <item>] [--env-file <file>] -- <command...>
-`);
+  keylet <group|command> [options]
+
+Command Groups:
+  auth      Authentication & session lock (login, unlock, lock, logout, status)
+  item      Manage vault items (list, get, add, rm, totp)
+  folder    Manage folders (list, add, rm)
+  vault     Sync & import vault data (sync, import)
+  ssh       SSH keys & in-memory agent (agent, add, list)
+
+Standalone Commands:
+  run       Run a command with vault secrets injected into env
+  generate  Generate a strong random password
+
+Run \`keylet <group> --help\` for subcommand details.`);
+}
+
+function printGroupHelp(group: string): void {
+  switch (group) {
+    case 'auth':
+      console.log(`Usage: keylet auth <subcommand>
+
+Subcommands:
+  login [--server <url>] [--email <email>] [--password-env <VAR>] [--2fa <code>]
+  unlock [--password-env <VAR>]
+  lock
+  logout
+  status`);
+      break;
+    case 'item':
+      console.log(`Usage: keylet item <subcommand>
+
+Subcommands:
+  list [--type login|note|card|ssh] [--json] [query]
+  get <query> [--field password|username|totp|public|private|notes|all] [--json]
+  add --name <name> [--type login|note|ssh] [--username <u>] [--password <p>] [--uri <url>] [--totp <secret>] [--generate-ssh]
+  rm <query> [--permanent]
+  totp <query>`);
+      break;
+    case 'folder':
+      console.log(`Usage: keylet folder <subcommand>
+
+Subcommands:
+  list
+  add <name>
+  rm <nameOrId>`);
+      break;
+    case 'vault':
+      console.log(`Usage: keylet vault <subcommand>
+
+Subcommands:
+  sync
+  import <file.json|file.csv>   (Bitwarden JSON/CSV, 1Password CSV/1PUX, Chrome CSV)`);
+      break;
+    case 'ssh':
+      console.log(`Usage: keylet ssh <subcommand>
+
+Subcommands:
+  agent                         Start in-memory SSH agent & print SSH_AUTH_SOCK export
+  add --name <name> [--generate]  Add or generate an Ed25519 SSH key item
+  list [--json]                 List SSH key items in vault`);
+      break;
+  }
 }
 
 async function promptLine(label: string): Promise<string> {
@@ -118,9 +163,13 @@ function hasFlag(args: string[], name: string): boolean {
   return args.includes(name);
 }
 
+function wantsHelp(args: string[]): boolean {
+  return args.includes('--help') || args.includes('-h');
+}
+
 async function getUnlockedItems(): Promise<DecryptedCipher[]> {
   if (!(await isDaemonRunning())) {
-    throw new Error('Vault is locked. Run `keylet unlock` first.');
+    throw new Error('Vault is locked. Run `keylet auth unlock` first.');
   }
   const res = await ipcRequest<{ ok: boolean; ciphers: DecryptedCipher[] }>(
     'GET',
@@ -129,15 +178,14 @@ async function getUnlockedItems(): Promise<DecryptedCipher[]> {
   return res.ciphers;
 }
 
+// --- Auth commands ---
 async function cmdLogin(args: string[]): Promise<void> {
   const serverRaw =
     getFlag(args, '--server') ||
     (await promptLine('Server URL (default https://vault.bitwarden.com): ')) ||
     'https://vault.bitwarden.com';
   const serverUrl = normalizeServerUrl(serverRaw);
-  const email = (
-    getFlag(args, '--email') || (await promptLine('Email: '))
-  )
+  const email = (getFlag(args, '--email') || (await promptLine('Email: ')))
     .trim()
     .toLowerCase();
 
@@ -160,7 +208,9 @@ async function cmdLogin(args: string[]): Promise<void> {
       email,
       passwordHash,
       deviceId,
-      twoFactorToken ? { provider: 0, token: twoFactorToken, remember: true } : undefined,
+      twoFactorToken
+        ? { provider: 0, token: twoFactorToken, remember: true }
+        : undefined,
     );
   } catch (err) {
     if (err instanceof TwoFactorRequiredError) {
@@ -211,7 +261,7 @@ async function cmdLogin(args: string[]): Promise<void> {
 async function cmdUnlock(args: string[]): Promise<void> {
   const account = readAccount();
   if (!account) {
-    throw new Error('No account configured. Run `keylet login` first.');
+    throw new Error('No account configured. Run `keylet auth login` first.');
   }
   const pwEnvVar = getFlag(args, '--password-env');
   const masterPassword =
@@ -253,31 +303,52 @@ async function cmdStatus(): Promise<void> {
     console.log(`Status: locked\nServer: ${account.serverUrl}\nEmail:  ${account.email}`);
     return;
   }
-  const st = await ipcRequest<{
-    unlocked: boolean;
-    cipherCount: number;
-  }>('GET', '/status');
+  const st = await ipcRequest<{ unlocked: boolean; cipherCount: number }>(
+    'GET',
+    '/status',
+  );
   console.log(
     `Status: ${st.unlocked ? 'unlocked' : 'locked'}\nServer: ${account.serverUrl}\nEmail:  ${account.email}\nItems:  ${st.cipherCount}`,
   );
 }
 
+// --- Vault commands ---
 async function cmdSync(): Promise<void> {
   if (!(await isDaemonRunning())) {
-    throw new Error('Vault is locked. Run `keylet unlock` first.');
+    throw new Error('Vault is locked. Run `keylet auth unlock` first.');
   }
   const res = await ipcRequest<{ cipherCount: number }>('POST', '/sync');
   console.log(`Synced ${res.cipherCount} items.`);
 }
 
+async function cmdImport(args: string[]): Promise<void> {
+  const filePath = args[0];
+  if (!filePath) throw new Error('Usage: keylet vault import <file.json|file.csv>');
+  if (!(await isDaemonRunning())) {
+    throw new Error('Vault is locked. Run `keylet auth unlock` first.');
+  }
+  const content = fs.readFileSync(filePath, 'utf8');
+  const parsed = parseImportFile(content);
+  if (parsed.items.length === 0) {
+    throw new Error('No importable items found');
+  }
+  const res = await ipcRequest<{ imported: number; cipherCount: number }>(
+    'POST',
+    '/import',
+    { items: parsed.items },
+  );
+  console.log(
+    `Imported ${res.imported} items (${parsed.format}, skipped ${parsed.skipped}). Total items: ${res.cipherCount}.`,
+  );
+}
+
+// --- Item commands ---
 async function cmdList(args: string[]): Promise<void> {
   const ciphers = await getUnlockedItems();
   const typeFilter = getFlag(args, '--type')?.toLowerCase();
   const asJson = hasFlag(args, '--json');
   const positional = args.filter(
-    (a, i) =>
-      !a.startsWith('--') &&
-      args[i - 1] !== '--type',
+    (a, i) => !a.startsWith('--') && args[i - 1] !== '--type',
   );
   const query = positional.join(' ').trim().toLowerCase();
 
@@ -324,7 +395,7 @@ async function cmdGet(args: string[]): Promise<void> {
     .filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--field')
     .join(' ')
     .trim();
-  if (!query) throw new Error('Usage: keylet get <query> [--field <name>]');
+  if (!query) throw new Error('Usage: keylet item get <query> [--field <name>]');
 
   const item = findCipherByQuery(ciphers, query);
   if (asJson || field === 'all') {
@@ -338,7 +409,7 @@ async function cmdGet(args: string[]): Promise<void> {
 async function cmdTotp(args: string[]): Promise<void> {
   const ciphers = await getUnlockedItems();
   const query = args.join(' ').trim();
-  if (!query) throw new Error('Usage: keylet totp <query>');
+  if (!query) throw new Error('Usage: keylet item totp <query>');
   const item = findCipherByQuery(ciphers, query);
   if (!item.login?.totp) {
     throw new Error(`Item "${item.name}" has no TOTP secret`);
@@ -349,36 +420,23 @@ async function cmdTotp(args: string[]): Promise<void> {
   );
 }
 
-function cmdGenerate(args: string[]): void {
-  const lenRaw = getFlag(args, '--length');
-  const length = lenRaw ? Number(lenRaw) : DEFAULT_PASSWORD_OPTIONS.length;
-  const { password } = generatePassword({
-    length,
-    uppercase: !hasFlag(args, '--no-uppercase'),
-    lowercase: !hasFlag(args, '--no-lowercase'),
-    numbers: !hasFlag(args, '--no-numbers'),
-    symbols: !hasFlag(args, '--no-symbols'),
-    excludeAmbiguous: hasFlag(args, '--avoid-ambiguous'),
-  });
-  console.log(password);
-}
-
 async function cmdAdd(args: string[]): Promise<void> {
   if (!(await isDaemonRunning())) {
-    throw new Error('Vault is locked. Run `keylet unlock` first.');
+    throw new Error('Vault is locked. Run `keylet auth unlock` first.');
   }
   const name = getFlag(args, '--name') || (await promptLine('Item Name: '));
   const rawType = (getFlag(args, '--type') ?? 'login').toLowerCase();
 
   let cipher: CipherInput;
   if (rawType === 'ssh') {
-    const sshKey = hasFlag(args, '--generate-ssh')
-      ? await generateEd25519SshKeyPair(name)
-      : {
-          privateKey: getFlag(args, '--private-key') ?? '',
-          publicKey: getFlag(args, '--public-key') ?? '',
-          keyFingerprint: getFlag(args, '--fingerprint') ?? null,
-        };
+    const sshKey =
+      hasFlag(args, '--generate-ssh') || hasFlag(args, '--generate')
+        ? await generateEd25519SshKeyPair(name)
+        : {
+            privateKey: getFlag(args, '--private-key') ?? '',
+            publicKey: getFlag(args, '--public-key') ?? '',
+            keyFingerprint: getFlag(args, '--fingerprint') ?? null,
+          };
     cipher = {
       type: CipherType.SshKey,
       name,
@@ -416,7 +474,7 @@ async function cmdRm(args: string[]): Promise<void> {
   const ciphers = await getUnlockedItems();
   const permanent = hasFlag(args, '--permanent');
   const query = args.filter((a) => !a.startsWith('--')).join(' ').trim();
-  if (!query) throw new Error('Usage: keylet rm <query> [--permanent]');
+  if (!query) throw new Error('Usage: keylet item rm <query> [--permanent]');
   const item = findCipherByQuery(ciphers, query);
   const res = await ipcRequest<{ cipherCount: number }>('POST', '/ciphers/delete', {
     cipherId: item.id,
@@ -425,9 +483,14 @@ async function cmdRm(args: string[]): Promise<void> {
   console.log(`Deleted "${item.name}". Total items: ${res.cipherCount}.`);
 }
 
+// --- Folder commands ---
 async function cmdFolder(args: string[]): Promise<void> {
+  if (wantsHelp(args)) {
+    printGroupHelp('folder');
+    return;
+  }
   if (!(await isDaemonRunning())) {
-    throw new Error('Vault is locked. Run `keylet unlock` first.');
+    throw new Error('Vault is locked. Run `keylet auth unlock` first.');
   }
   const sub = args[0] ?? 'list';
   if (sub === 'list') {
@@ -440,9 +503,11 @@ async function cmdFolder(args: string[]): Promise<void> {
   if (sub === 'add') {
     const name = args.slice(1).join(' ').trim();
     if (!name) throw new Error('Usage: keylet folder add <name>');
-    const res = await ipcRequest<{ folders: DecryptedFolder[] }>('POST', '/folders/create', {
-      name,
-    });
+    const res = await ipcRequest<{ folders: DecryptedFolder[] }>(
+      'POST',
+      '/folders/create',
+      { name },
+    );
     console.log(`Created folder "${name}". Total folders: ${res.folders.length}.`);
     return;
   }
@@ -461,9 +526,10 @@ async function cmdFolder(args: string[]): Promise<void> {
   throw new Error(`Unknown folder subcommand: ${sub}`);
 }
 
+// --- SSH commands ---
 async function cmdSshAgent(): Promise<void> {
   if (!(await isDaemonRunning())) {
-    throw new Error('Vault is locked. Run `keylet unlock` first.');
+    throw new Error('Vault is locked. Run `keylet auth unlock` first.');
   }
   const res = await ipcRequest<{ socketPath: string; keyCount: number }>(
     'POST',
@@ -473,25 +539,112 @@ async function cmdSshAgent(): Promise<void> {
   console.error(`# Keylet SSH agent active with ${res.keyCount} key(s).`);
 }
 
-async function cmdImport(args: string[]): Promise<void> {
-  const filePath = args[0];
-  if (!filePath) throw new Error('Usage: keylet import <file.json|file.csv>');
-  if (!(await isDaemonRunning())) {
-    throw new Error('Vault is locked. Run `keylet unlock` first.');
+async function handleAuthGroup(args: string[]): Promise<void> {
+  const [sub, ...rest] = args;
+  if (!sub || wantsHelp([sub])) {
+    printGroupHelp('auth');
+    return;
   }
-  const content = fs.readFileSync(filePath, 'utf8');
-  const parsed = parseImportFile(content);
-  if (parsed.items.length === 0) {
-    throw new Error('No importable items found');
+  switch (sub) {
+    case 'login':
+      await cmdLogin(rest);
+      break;
+    case 'unlock':
+      await cmdUnlock(rest);
+      break;
+    case 'lock':
+      await cmdLock();
+      break;
+    case 'logout':
+      await cmdLogout();
+      break;
+    case 'status':
+      await cmdStatus();
+      break;
+    default:
+      throw new Error(`Unknown auth subcommand: ${sub}`);
   }
-  const res = await ipcRequest<{ imported: number; cipherCount: number }>(
-    'POST',
-    '/import',
-    { items: parsed.items },
-  );
-  console.log(
-    `Imported ${res.imported} items (${parsed.format}, skipped ${parsed.skipped}). Total items: ${res.cipherCount}.`,
-  );
+}
+
+async function handleItemGroup(args: string[]): Promise<void> {
+  const [sub, ...rest] = args;
+  if (!sub || wantsHelp([sub])) {
+    printGroupHelp('item');
+    return;
+  }
+  switch (sub) {
+    case 'list':
+      await cmdList(rest);
+      break;
+    case 'get':
+      await cmdGet(rest);
+      break;
+    case 'add':
+      await cmdAdd(rest);
+      break;
+    case 'rm':
+      await cmdRm(rest);
+      break;
+    case 'totp':
+      await cmdTotp(rest);
+      break;
+    default:
+      throw new Error(`Unknown item subcommand: ${sub}`);
+  }
+}
+
+async function handleVaultGroup(args: string[]): Promise<void> {
+  const [sub, ...rest] = args;
+  if (!sub || wantsHelp([sub])) {
+    printGroupHelp('vault');
+    return;
+  }
+  switch (sub) {
+    case 'sync':
+      await cmdSync();
+      break;
+    case 'import':
+      await cmdImport(rest);
+      break;
+    default:
+      throw new Error(`Unknown vault subcommand: ${sub}`);
+  }
+}
+
+async function handleSshGroup(args: string[]): Promise<void> {
+  const [sub, ...rest] = args;
+  if (!sub || wantsHelp([sub])) {
+    printGroupHelp('ssh');
+    return;
+  }
+  switch (sub) {
+    case 'agent':
+      await cmdSshAgent();
+      break;
+    case 'list':
+      await cmdList(['--type', 'ssh', ...rest]);
+      break;
+    case 'add':
+      await cmdAdd(['--type', 'ssh', ...rest]);
+      break;
+    default:
+      throw new Error(`Unknown ssh subcommand: ${sub}`);
+  }
+}
+
+// --- Standalone commands ---
+function cmdGenerate(args: string[]): void {
+  const lenRaw = getFlag(args, '--length');
+  const length = lenRaw ? Number(lenRaw) : DEFAULT_PASSWORD_OPTIONS.length;
+  const { password } = generatePassword({
+    length,
+    uppercase: !hasFlag(args, '--no-uppercase'),
+    lowercase: !hasFlag(args, '--no-lowercase'),
+    numbers: !hasFlag(args, '--no-numbers'),
+    symbols: !hasFlag(args, '--no-symbols'),
+    excludeAmbiguous: hasFlag(args, '--avoid-ambiguous'),
+  });
+  console.log(password);
 }
 
 async function cmdRun(args: string[]): Promise<void> {
@@ -537,8 +690,35 @@ async function main(): Promise<void> {
     case 'help':
     case '--help':
     case '-h':
-      printHelp();
+      printRootHelp();
       break;
+
+    // Primary 2-level command groups
+    case 'auth':
+      await handleAuthGroup(rest);
+      break;
+    case 'item':
+      await handleItemGroup(rest);
+      break;
+    case 'folder':
+      await cmdFolder(rest);
+      break;
+    case 'vault':
+      await handleVaultGroup(rest);
+      break;
+    case 'ssh':
+      await handleSshGroup(rest);
+      break;
+
+    // Standalone commands
+    case 'generate':
+      cmdGenerate(rest);
+      break;
+    case 'run':
+      await cmdRun(rest);
+      break;
+
+    // Backwards-compatible aliases
     case 'login':
       await cmdLogin(rest);
       break;
@@ -557,6 +737,9 @@ async function main(): Promise<void> {
     case 'sync':
       await cmdSync();
       break;
+    case 'import':
+      await cmdImport(rest);
+      break;
     case 'list':
       await cmdList(rest);
       break;
@@ -572,24 +755,13 @@ async function main(): Promise<void> {
     case 'rm':
       await cmdRm(rest);
       break;
-    case 'folder':
-      await cmdFolder(rest);
-      break;
     case 'ssh-agent':
       await cmdSshAgent();
       break;
-    case 'import':
-      await cmdImport(rest);
-      break;
-    case 'generate':
-      cmdGenerate(rest);
-      break;
-    case 'run':
-      await cmdRun(rest);
-      break;
+
     default:
       console.error(`Unknown command: ${subcommand}`);
-      printHelp();
+      printRootHelp();
       process.exitCode = 1;
   }
 }
