@@ -36,7 +36,7 @@ jobs:
         run: |
           npm --workspace=keylet run build:firefox
           npm --workspace=keylet run zip
-          npm --workspace=keylet exec wxt zip -b firefox
+          npm --workspace=keylet run zip:firefox
 
       - name: Upload extension artifacts
         uses: actions/upload-artifact@v4
