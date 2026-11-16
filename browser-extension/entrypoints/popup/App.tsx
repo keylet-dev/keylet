@@ -56,16 +56,18 @@ function cipherSubtitle(c: MatchedCipher): string {
   return 'Secure Note';
 }
 
-function CipherIcon({ type }: { type: CipherType }) {
-  switch (type) {
+function CipherAvatar({ cipher }: { cipher: MatchedCipher }) {
+  switch (cipher.type) {
     case CipherType.Login:
-      return <KeyRound size={15} />;
+      return <>{(cipher.name.trim()[0] ?? 'K').toUpperCase()}</>;
     case CipherType.Card:
-      return <CreditCard size={15} />;
+      return <CreditCard size={14} />;
     case CipherType.Identity:
-      return <User size={15} />;
+      return <User size={14} />;
+    case CipherType.SshKey:
+      return <KeyRound size={14} />;
     default:
-      return <FileText size={15} />;
+      return <FileText size={14} />;
   }
 }
 
@@ -388,7 +390,7 @@ export function App() {
         onClick={() => setActiveCipher(c)}
       >
         <div className="cipher-avatar">
-          <CipherIcon type={c.type} />
+          <CipherAvatar cipher={c} />
         </div>
         <div className="cipher-meta">
           <div className="cipher-title">

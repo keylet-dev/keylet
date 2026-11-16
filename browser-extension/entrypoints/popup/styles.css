@@ -1,24 +1,25 @@
 :root {
-  --bg-base: #0d0f13;
-  --bg-elevated: #151820;
-  --bg-hover: #1c202b;
-  --bg-active: #232938;
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.16);
+  --bg-base: #11141b;
+  --bg-glass: rgba(255, 255, 255, 0.04);
+  --bg-elevated: rgba(255, 255, 255, 0.055);
+  --bg-hover: rgba(59, 130, 246, 0.10);
+  --bg-active: rgba(59, 130, 246, 0.17);
+  --border-subtle: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(59, 130, 246, 0.32);
   --text-primary: #f3f4f6;
   --text-secondary: #9ca3af;
   --text-muted: #6b7280;
   --accent: #3b82f6;
   --accent-hover: #2563eb;
   --accent-soft: rgba(59, 130, 246, 0.16);
-  --success: #10b981;
+  --success: #34d399;
   --success-soft: rgba(16, 185, 129, 0.16);
   --warning: #f59e0b;
   --danger: #ef4444;
   --danger-soft: rgba(239, 68, 68, 0.15);
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 10px;
+  --radius-sm: 7px;
+  --radius-md: 9px;
+  --radius-lg: 12px;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -33,7 +34,9 @@ body {
   padding: 0;
   width: 400px;
   height: 560px;
-  background: var(--bg-base);
+  background:
+    radial-gradient(ellipse 90% 45% at 50% -10%, rgba(59, 130, 246, 0.14), transparent 70%),
+    linear-gradient(180deg, #141821 0%, #0e1117 100%);
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: 13px;
@@ -53,6 +56,8 @@ body {
   flex-direction: column;
   height: 100%;
   position: relative;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 /* Header / Search Bar */
@@ -62,7 +67,8 @@ body {
   gap: 8px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-base);
+  background: rgba(255, 255, 255, 0.025);
+  backdrop-filter: blur(12px);
 }
 
 .search-group {
@@ -70,16 +76,17 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--bg-elevated);
+  background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   padding: 0 10px;
   height: 36px;
-  transition: border-color 120ms ease;
+  transition: border-color 120ms ease, background 120ms ease;
 }
 
 .search-group:focus-within {
-  border-color: var(--accent);
+  border-color: rgba(59, 130, 246, 0.65);
+  background: rgba(255, 255, 255, 0.07);
 }
 
 .search-input {
@@ -149,7 +156,7 @@ body {
 .filter-bar {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-base);
+  background: rgba(255, 255, 255, 0.015);
 }
 
 .segmented {
@@ -157,7 +164,7 @@ body {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
-  background: var(--bg-elevated);
+  background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   padding: 2px;
@@ -169,8 +176,9 @@ body {
   left: var(--segmented-control-indicator-left, 2px);
   width: var(--segmented-control-indicator-width, 0px);
   height: var(--segmented-control-indicator-height, 26px);
-  background: var(--bg-active);
-  border-radius: 6px;
+  background: rgba(59, 130, 246, 0.22);
+  border: 1px solid rgba(59, 130, 246, 0.28);
+  border-radius: 7px;
   transition: transform 150ms ease, width 150ms ease, left 150ms ease;
   pointer-events: none;
 }
@@ -241,18 +249,18 @@ body {
 }
 
 .cipher-avatar {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-secondary);
+  color: #60a5fa;
   flex-shrink: 0;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12.5px;
 }
 
 .cipher-meta {
@@ -310,7 +318,8 @@ body {
   justify-content: space-between;
   padding: 6px 12px;
   border-top: 1px solid var(--border-subtle);
-  background: var(--bg-elevated);
+  background: rgba(255, 255, 255, 0.025);
+  backdrop-filter: blur(12px);
   font-size: 11px;
   color: var(--text-muted);
 }
@@ -319,7 +328,7 @@ body {
   display: inline-block;
   padding: 1px 5px;
   border-radius: 4px;
-  background: var(--bg-base);
+  background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
   font-family: var(--font-mono);
