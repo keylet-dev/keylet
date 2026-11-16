@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Button } from '@ui-sdk/react/button';
 import {
   PasswordInput,
@@ -10,8 +10,8 @@ import {
   SegmentedControlIndicator,
   SegmentedControlItem,
 } from '@ui-sdk/react/segmented-control';
-import { ArrowLeft, Eye, EyeOff, KeyRound, Lock, LogOut, RefreshCw } from 'lucide-react';
-import type { VaultStatus } from '@keylet/core';
+import { ArrowLeft, Eye, EyeOff, KeyRound, Lock, LogOut, RefreshCw, Upload } from 'lucide-react';
+import { parseImportFile, type VaultStatus } from '@keylet/core';
 import { sendRuntimeMessage } from '../ipc';
 
 interface SettingsViewProps {
@@ -45,6 +45,9 @@ export function SettingsView({
 }: SettingsViewProps) {
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function handleTimeoutChange(val: string | null) {
     if (!val) return;
@@ -101,6 +104,31 @@ export function SettingsView({
   async function handleLogout() {
     const next = await sendRuntimeMessage<VaultStatus>({ type: 'LOGOUT' });
     onStatusChange(next);
+  }
+
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImportError(null);
+    setImporting(true);
+    try {
+      const content = await file.text();
+      const parsed = parseImportFile(content);
+      if (parsed.items.length === 0) {
+        throw new Error('No importable items found in file');
+      }
+      const next = await sendRuntimeMessage<VaultStatus>({
+        type: 'IMPORT_CIPHERS',
+        items: parsed.items,
+      });
+      onStatusChange(next);
+      onToast(`Imported ${parsed.items.length} items (${parsed.format})`);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Import failed');
+    } finally {
+      setImporting(false);
+    }
   }
 
   return (
@@ -227,6 +255,23 @@ export function SettingsView({
           )}
           {pinError && <div className="error-banner">{pinError}</div>}
         </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json,.csv"
+          style={{ display: 'none' }}
+          onChange={(e) => void handleImportFile(e)}
+        />
+        <Button
+          className="btn"
+          disabled={importing}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <Upload size={14} />
+          {importing ? 'Importing…' : 'Import Vault (Bitwarden / Chrome CSV / JSON)'}
+        </Button>
+        {importError && <div className="error-banner">{importError}</div>}
 
         <Button className="btn" onClick={() => handleSync()}>
           <RefreshCw size={14} />

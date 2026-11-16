@@ -46,6 +46,7 @@ export type RuntimeRequest =
   | { type: 'CREATE_CIPHER'; cipher: CipherInput }
   | { type: 'UPDATE_CIPHER'; cipherId: string; cipher: CipherInput }
   | { type: 'DELETE_CIPHER'; cipherId: string }
+  | { type: 'IMPORT_CIPHERS'; items: CipherInput[] }
   | {
       type: 'SAVE_LOGIN';
       name: string;

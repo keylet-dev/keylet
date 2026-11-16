@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +16,7 @@ import {
   generateTotp,
   loginWithPassword,
   normalizeServerUrl,
+  parseImportFile,
   prelogin,
   stretchKey,
   TwoFactorRequiredError,
@@ -48,6 +50,7 @@ Usage:
   keylet list [--type login|note|card] [--json] [query]
   keylet get <query> [--field password|username|totp|notes|all] [--json]
   keylet totp <query>
+  keylet import <file.json|file.csv>
   keylet generate [--length 20] [--no-symbols] [--no-numbers] [--avoid-ambiguous]
   keylet run [--from <item>] [--env-file <file>] -- <command...>
 `);
@@ -346,6 +349,27 @@ function cmdGenerate(args: string[]): void {
   console.log(password);
 }
 
+async function cmdImport(args: string[]): Promise<void> {
+  const filePath = args[0];
+  if (!filePath) throw new Error('Usage: keylet import <file.json|file.csv>');
+  if (!(await isDaemonRunning())) {
+    throw new Error('Vault is locked. Run `keylet unlock` first.');
+  }
+  const content = fs.readFileSync(filePath, 'utf8');
+  const parsed = parseImportFile(content);
+  if (parsed.items.length === 0) {
+    throw new Error('No importable items found');
+  }
+  const res = await ipcRequest<{ imported: number; cipherCount: number }>(
+    'POST',
+    '/import',
+    { items: parsed.items },
+  );
+  console.log(
+    `Imported ${res.imported} items (${parsed.format}, skipped ${parsed.skipped}). Total items: ${res.cipherCount}.`,
+  );
+}
+
 async function cmdRun(args: string[]): Promise<void> {
   const sepIdx = args.indexOf('--');
   const flagArgs = sepIdx === -1 ? args : args.slice(0, sepIdx);
@@ -417,6 +441,9 @@ async function main(): Promise<void> {
       break;
     case 'totp':
       await cmdTotp(rest);
+      break;
+    case 'import':
+      await cmdImport(rest);
       break;
     case 'generate':
       cmdGenerate(rest);

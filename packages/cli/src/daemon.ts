@@ -2,12 +2,15 @@ import fs from 'node:fs';
 import http from 'node:http';
 import {
   base64ToBytes,
+  type CipherInput,
+  createCipher,
   type DecryptedCipher,
   type DecryptedFolder,
   decryptProtectedSymmetricKey,
   decryptSyncResponse,
   deriveMasterKey,
   deriveMasterPasswordHash,
+  encryptCipherPayload,
   type EncryptedSyncResponse,
   loginWithPassword,
   refreshAccessToken,
@@ -190,6 +193,26 @@ export function startDaemon(): void {
         await performSync(account);
         resetIdleTimer(account.autoLockMinutes);
         reply(200, { ok: true, cipherCount: memCiphers.length });
+        return;
+      }
+
+      if (req.method === 'POST' && url === '/import') {
+        const account = readAccount(dir);
+        if (!account || !memSymKey || !memAccessToken) throw new Error('Vault is locked');
+        const items = Array.isArray(body.items) ? (body.items as CipherInput[]) : [];
+        const batchSize = 4;
+        for (let i = 0; i < items.length; i += batchSize) {
+          const slice = items.slice(i, i + batchSize);
+          await Promise.all(
+            slice.map(async (item) => {
+              const payload = await encryptCipherPayload(item, memSymKey!);
+              await createCipher(account.serverUrl, memAccessToken!, payload);
+            }),
+          );
+        }
+        await performSync(account);
+        resetIdleTimer(account.autoLockMinutes);
+        reply(200, { ok: true, imported: items.length, cipherCount: memCiphers.length });
         return;
       }
 

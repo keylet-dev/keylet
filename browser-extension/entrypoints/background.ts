@@ -556,6 +556,26 @@ async function handleMessage(
         await touchActivity();
         return { ok: true, data: await getStatus() };
       }
+      case 'IMPORT_CIPHERS': {
+        await restoreSessionIfNeeded();
+        const account = await getStoredAccount();
+        if (!account || !memSymKey || !memAccessToken) {
+          throw new Error('Vault is locked');
+        }
+        const batchSize = 4;
+        for (let i = 0; i < req.items.length; i += batchSize) {
+          const slice = req.items.slice(i, i + batchSize);
+          await Promise.all(
+            slice.map(async (item) => {
+              const payload = await encryptCipherPayload(item, memSymKey!);
+              await createCipher(account.serverUrl, memAccessToken!, payload);
+            }),
+          );
+        }
+        await performSync(account);
+        await touchActivity();
+        return { ok: true, data: await getStatus() };
+      }
       case 'SAVE_LOGIN': {
         await restoreSessionIfNeeded();
         const account = await getStoredAccount();

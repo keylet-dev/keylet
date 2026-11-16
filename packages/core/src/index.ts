@@ -3,4 +3,5 @@ export * from './api/types.js';
 export * from './api/client.js';
 export * from './matching/uri.js';
 export * from './vault/decrypt.js';
+export * from './vault/import.js';
 export * from './vault/messages.js';
