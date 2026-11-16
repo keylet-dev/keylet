@@ -385,41 +385,119 @@ export default defineContentScript({
       const shadow = host.attachShadow({ mode: 'closed' });
       const style = document.createElement('style');
       style.textContent = `
-        .banner {
-          width: 300px;
-          background: #151820;
-          color: #f3f4f6;
-          border: 1px solid rgba(255,255,255,0.16);
-          border-radius: 10px;
-          padding: 12px;
-          box-shadow: 0 12px 32px rgba(0,0,0,0.5);
-          font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
-          font-size: 12.5px;
+        @keyframes keyletPop {
+          from { opacity: 0; transform: translateY(-4px) scale(0.985); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
         }
-        .title { font-weight: 600; margin-bottom: 4px; }
-        .sub { color: #9ca3af; font-size: 11.5px; margin-bottom: 10px; word-break: break-all; }
-        .actions { display: flex; justify-content: flex-end; gap: 8px; }
+        .banner {
+          width: 312px;
+          background: rgba(20, 23, 30, 0.94);
+          backdrop-filter: blur(16px);
+          -webkit-backdrop-filter: blur(16px);
+          color: #f3f4f6;
+          border: 1px solid rgba(255, 255, 255, 0.14);
+          border-radius: 12px;
+          box-shadow: 0 18px 42px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 0, 0, 0.25);
+          font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+          font-size: 12.5px;
+          overflow: hidden;
+          animation: keyletPop 110ms ease-out;
+        }
+        .header {
+          padding: 7px 12px;
+          font-size: 11px;
+          font-weight: 600;
+          color: #9ca3af;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: rgba(255, 255, 255, 0.02);
+        }
+        .brand {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          color: #e5e7eb;
+        }
+        .brand-icon {
+          width: 16px;
+          height: 16px;
+          border-radius: 4px;
+          background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: #fff;
+        }
+        .tag {
+          font-size: 10.5px;
+          color: #6b7280;
+          font-weight: 500;
+        }
+        .body {
+          padding: 12px;
+        }
+        .title {
+          font-weight: 600;
+          font-size: 13px;
+          color: #f3f4f6;
+          margin-bottom: 4px;
+        }
+        .sub {
+          color: #9ca3af;
+          font-size: 11.5px;
+          margin-bottom: 12px;
+          word-break: break-all;
+        }
+        .actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+        }
         button {
-          border-radius: 6px;
-          border: 1px solid rgba(255,255,255,0.12);
-          padding: 5px 10px;
+          border-radius: 7px;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          padding: 6px 11px;
           font-size: 12px;
           cursor: pointer;
           font-weight: 500;
+          transition: background 110ms ease, opacity 110ms ease;
         }
-        .dismiss { background: #1c202b; color: #d1d5db; }
-        .save { background: #3b82f6; border-color: transparent; color: #fff; }
+        button:disabled { opacity: 0.6; cursor: default; }
+        .dismiss {
+          background: rgba(255, 255, 255, 0.05);
+          color: #d1d5db;
+        }
+        .dismiss:hover { background: rgba(255, 255, 255, 0.1); }
+        .save {
+          background: linear-gradient(135deg, #3b82f6, #2563eb);
+          border-color: transparent;
+          color: #fff;
+          box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+        }
+        .save:hover { filter: brightness(1.08); }
       `;
 
       const banner = document.createElement('div');
       banner.className = 'banner';
 
+      const header = document.createElement('div');
+      header.className = 'header';
+      header.innerHTML = `
+        <span class="brand">
+          <span class="brand-icon"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg></span>
+          <span>Keylet</span>
+        </span>
+        <span class="tag">Save login</span>
+      `;
+
+      const body = document.createElement('div');
+      body.className = 'body';
+
       const title = document.createElement('div');
       title.className = 'title';
-      title.style.display = 'flex';
-      title.style.alignItems = 'center';
-      title.style.gap = '7px';
-      title.innerHTML = `<span style="width:18px;height:18px;border-radius:5px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);display:inline-flex;align-items:center;justify-content:center;color:#fff;flex-shrink:0;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg></span><span>Save login to Keylet?</span>`;
+      title.textContent = 'Save login to Keylet?';
 
       const sub = document.createElement('div');
       sub.className = 'sub';
@@ -450,7 +528,8 @@ export default defineContentScript({
       };
 
       actions.append(dismissBtn, saveBtn);
-      banner.append(title, sub, actions);
+      body.append(title, sub, actions);
+      banner.append(header, body);
       shadow.append(style, banner);
       document.documentElement.appendChild(host);
       savePromptHost = host;

@@ -106,6 +106,7 @@ data class CreateCipherRequest(
     val notes: String? = null,
     val favorite: Boolean = false,
     val folderId: String? = null,
+    val encryptedFor: String? = null,
     val login: EncryptedLogin? = null,
     val secureNote: EncryptedSecureNote? = null,
     val card: EncryptedCard? = null

@@ -54,18 +54,49 @@ export function normalizeServerUrl(raw: string): string {
   return url.origin + (url.pathname === '/' ? '' : url.pathname.replace(/\/+$/, ''));
 }
 
+function extractJwtSub(token: string): string | undefined {
+  try {
+    const parts = token.split('.');
+    const payloadPart = parts[1];
+    if (!payloadPart) return undefined;
+    const b64 = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
+    const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4));
+    const json = atob(b64 + pad);
+    const data = JSON.parse(json) as { sub?: unknown };
+    return typeof data.sub === 'string' && data.sub.length > 0 ? data.sub : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function parseErrorMessage(res: Response): Promise<string> {
   const text = await res.text().catch(() => '');
   try {
     const data = JSON.parse(text) as Record<string, unknown>;
     if (typeof data.error_description === 'string') return data.error_description;
-    if (typeof data.message === 'string') return data.message;
-    if (typeof data.Message === 'string') return data.Message;
+    const validation = data.ValidationErrors ?? data.validationErrors;
+    const valSuffix =
+      validation && typeof validation === 'object'
+        ? ` (${JSON.stringify(validation).slice(0, 200)})`
+        : '';
+    if (typeof data.message === 'string') return data.message + valSuffix;
+    if (typeof data.Message === 'string') return data.Message + valSuffix;
     const errModel = data.ErrorModel as Record<string, unknown> | undefined;
-    if (errModel && typeof errModel.Message === 'string') return errModel.Message;
+    if (errModel && typeof errModel.Message === 'string') {
+      return errModel.Message + valSuffix;
+    }
+    if (typeof data.error === 'string') return data.error;
+    if (data.error && typeof data.error === 'object') {
+      const errObj = data.error as Record<string, unknown>;
+      if (typeof errObj.description === 'string') return errObj.description;
+      if (typeof errObj.reason === 'string') return errObj.reason;
+    }
+    if (text.trim()) {
+      return `HTTP ${res.status}: ${text.trim().slice(0, 240)}`;
+    }
   } catch {
     if (text && !text.trimStart().startsWith('<')) {
-      return text.trim().slice(0, 200);
+      return text.trim().slice(0, 240);
     }
   }
   return `Request failed with status ${res.status}`;
@@ -216,6 +247,7 @@ export interface CreateCipherPayload {
   notes?: string | null;
   favorite?: boolean;
   folderId?: string | null;
+  encryptedFor?: string | null;
   fields?: { name: string; value: string; type: number }[];
   login?: {
     username?: string | null;
@@ -244,6 +276,10 @@ export async function createCipher(
   payload: CreateCipherPayload,
 ): Promise<EncryptedCipher> {
   const base = normalizeServerUrl(serverUrl);
+  const encryptedFor =
+    payload.encryptedFor !== undefined ? payload.encryptedFor : extractJwtSub(accessToken);
+  const bodyPayload =
+    encryptedFor !== undefined ? { ...payload, encryptedFor } : payload;
   const res = await fetch(`${base}/api/ciphers`, {
     method: 'POST',
     headers: {
@@ -251,7 +287,7 @@ export async function createCipher(
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(bodyPayload),
   });
 
   if (!res.ok) {
@@ -268,6 +304,10 @@ export async function updateCipher(
   payload: CreateCipherPayload,
 ): Promise<EncryptedCipher> {
   const base = normalizeServerUrl(serverUrl);
+  const encryptedFor =
+    payload.encryptedFor !== undefined ? payload.encryptedFor : extractJwtSub(accessToken);
+  const bodyPayload =
+    encryptedFor !== undefined ? { ...payload, encryptedFor } : payload;
   const res = await fetch(`${base}/api/ciphers/${encodeURIComponent(cipherId)}`, {
     method: 'PUT',
     headers: {
@@ -275,7 +315,7 @@ export async function updateCipher(
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(bodyPayload),
   });
 
   if (!res.ok) {

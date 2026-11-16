@@ -175,13 +175,29 @@ object BitwardenApi {
             }
         }
 
+    private fun extractJwtSub(token: String): String? = runCatching {
+        val parts = token.split('.')
+        if (parts.size < 2) return null
+        val decoded = android.util.Base64.decode(
+            parts[1],
+            android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING
+        )
+        val obj = json.parseToJsonElement(String(decoded, Charsets.UTF_8)).jsonObject
+        obj["sub"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+    }.getOrNull()
+
     suspend fun createCipher(
         serverUrl: String,
         accessToken: String,
         payload: CreateCipherRequest
     ): EncryptedCipher = withContext(Dispatchers.IO) {
         val base = normalizeServerUrl(serverUrl)
-        val bodyStr = json.encodeToString(CreateCipherRequest.serializer(), payload)
+        val finalPayload = if (payload.encryptedFor == null) {
+            payload.copy(encryptedFor = extractJwtSub(accessToken))
+        } else {
+            payload
+        }
+        val bodyStr = json.encodeToString(CreateCipherRequest.serializer(), finalPayload)
         val req = Request.Builder()
             .url("$base/api/ciphers")
             .post(bodyStr.toRequestBody(jsonMedia))
@@ -202,7 +218,12 @@ object BitwardenApi {
         payload: CreateCipherRequest
     ): EncryptedCipher = withContext(Dispatchers.IO) {
         val base = normalizeServerUrl(serverUrl)
-        val bodyStr = json.encodeToString(CreateCipherRequest.serializer(), payload)
+        val finalPayload = if (payload.encryptedFor == null) {
+            payload.copy(encryptedFor = extractJwtSub(accessToken))
+        } else {
+            payload
+        }
+        val bodyStr = json.encodeToString(CreateCipherRequest.serializer(), finalPayload)
         val req = Request.Builder()
             .url("$base/api/ciphers/$cipherId")
             .put(bodyStr.toRequestBody(jsonMedia))
