@@ -9,7 +9,12 @@ import {
   generateEd25519SshKeyPair,
 } from '@keylet/core';
 import { KeyletSshAgent, parseOpenSshEd25519 } from '../src/sshAgent.js';
-import { renderTable, resolveOutputFormat, toYaml } from '../src/format.js';
+import {
+  evalJsonPath,
+  renderTable,
+  resolveOutputFormat,
+  toYaml,
+} from '../src/format.js';
 import { installSkill } from '../src/skills.js';
 import {
   extractCipherField,
@@ -142,6 +147,19 @@ describe('@keylet/cli run & query helpers', () => {
     const yaml = toYaml([{ id: '1', name: 'GitHub: Main' }]);
     expect(yaml).toContain('- id: "1"');
     expect(yaml).toContain('name: "GitHub: Main"');
+  });
+
+  it('evaluates JSONPath queries on items and arrays', () => {
+    expect(evalJsonPath(MOCK_CIPHERS, '$[*].name')).toEqual([
+      'Production Postgres',
+      'App Env',
+    ]);
+    expect(evalJsonPath(MOCK_CIPHERS, '$[0].login.uris[0].uri')).toBe(
+      'https://db.internal',
+    );
+    expect(
+      evalJsonPath(MOCK_CIPHERS[0], '$.fields[?(@.name=="DB_HOST")].value'),
+    ).toEqual(['db.internal']);
   });
 
   it('installs Keylet SKILL.md to target directory', () => {

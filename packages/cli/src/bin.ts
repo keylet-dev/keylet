@@ -37,7 +37,13 @@ import {
   findCipherByQuery,
   resolveRunEnvironment,
 } from './run.js';
-import { renderTable, resolveOutputFormat, toYaml } from './format.js';
+import {
+  evalJsonPath,
+  formatJsonPathResult,
+  renderTable,
+  resolveOutputFormat,
+  toYaml,
+} from './format.js';
 import {
   installSkill,
   KEYLET_SKILL_MD,
@@ -83,8 +89,8 @@ Subcommands:
       console.log(`Usage: keylet item <subcommand>
 
 Subcommands:
-  list [--type login|note|card|ssh] [--format table|json|yaml] [--json] [query]
-  get <query> [--field password|username|totp|public|private|notes|all] [--json]
+  list [--type login|note|card|ssh] [--format table|json|yaml] [--json-path <expr>] [query]
+  get <query> [--field password|username|totp|public|private|notes|all] [--json-path <expr>] [--json]
   add --name <name> [--type login|note|ssh] [--username <u>] [--password <p>] [--uri <url>] [--totp <secret>] [--generate-ssh]
   rm <query> [--permanent]
   totp <query>`);
@@ -93,7 +99,7 @@ Subcommands:
       console.log(`Usage: keylet folder <subcommand>
 
 Subcommands:
-  list [--format table|json|yaml] [--json]
+  list [--format table|json|yaml] [--json-path <expr>] [--json]
   add <name>
   rm <nameOrId>`);
       break;
@@ -378,12 +384,14 @@ function cipherTypeLabel(type: CipherType): string {
 async function cmdList(args: string[]): Promise<void> {
   const ciphers = await getUnlockedItems();
   const typeFilter = getFlag(args, '--type')?.toLowerCase();
+  const jsonPath = getFlag(args, '--json-path');
   const format = resolveOutputFormat(args, 'table');
   const positional = args.filter(
     (a, i) =>
       !a.startsWith('--') &&
       args[i - 1] !== '--type' &&
-      args[i - 1] !== '--format',
+      args[i - 1] !== '--format' &&
+      args[i - 1] !== '--json-path',
   );
   const query = positional.join(' ').trim().toLowerCase();
 
@@ -397,6 +405,10 @@ async function cmdList(args: string[]): Promise<void> {
     return hay.includes(query);
   });
 
+  if (jsonPath) {
+    console.log(formatJsonPathResult(evalJsonPath(filtered, jsonPath)));
+    return;
+  }
   if (format === 'json') {
     console.log(JSON.stringify(filtered, null, 2));
     return;
@@ -434,14 +446,24 @@ async function cmdList(args: string[]): Promise<void> {
 async function cmdGet(args: string[]): Promise<void> {
   const ciphers = await getUnlockedItems();
   const field = getFlag(args, '--field') ?? 'password';
+  const jsonPath = getFlag(args, '--json-path');
   const asJson = hasFlag(args, '--json');
   const query = args
-    .filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--field')
+    .filter(
+      (a, i) =>
+        !a.startsWith('--') &&
+        args[i - 1] !== '--field' &&
+        args[i - 1] !== '--json-path',
+    )
     .join(' ')
     .trim();
   if (!query) throw new Error('Usage: keylet item get <query> [--field <name>]');
 
   const item = findCipherByQuery(ciphers, query);
+  if (jsonPath) {
+    console.log(formatJsonPathResult(evalJsonPath(item, jsonPath)));
+    return;
+  }
   if (asJson || field === 'all') {
     console.log(JSON.stringify(item, null, 2));
     return;
@@ -539,8 +561,13 @@ async function cmdFolder(args: string[]): Promise<void> {
   const sub = args[0] ?? 'list';
   if (sub === 'list') {
     const rest = args.slice(1);
+    const jsonPath = getFlag(rest, '--json-path');
     const format = resolveOutputFormat(rest, 'table');
     const res = await ipcRequest<{ folders: DecryptedFolder[] }>('GET', '/items');
+    if (jsonPath) {
+      console.log(formatJsonPathResult(evalJsonPath(res.folders, jsonPath)));
+      return;
+    }
     if (format === 'json') {
       console.log(JSON.stringify(res.folders, null, 2));
       return;
