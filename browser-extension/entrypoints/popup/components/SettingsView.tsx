@@ -269,7 +269,7 @@ export function SettingsView({
           onClick={() => fileInputRef.current?.click()}
         >
           <Upload size={14} />
-          {importing ? 'Importing…' : 'Import Vault (Bitwarden / Chrome CSV / JSON)'}
+          {importing ? 'Importing…' : 'Import Vault (Bitwarden / 1Password / Chrome)'}
         </Button>
         {importError && <div className="error-banner">{importError}</div>}
 

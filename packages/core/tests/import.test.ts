@@ -59,4 +59,54 @@ describe('Vault Import Parsers', () => {
     expect(res.items[0]?.login?.username).toBe('alice@example.com');
     expect(res.items[0]?.login?.uris[0]?.uri).toBe('https://vault.example.com');
   });
+
+  it('parses 1Password CSV exports', () => {
+    const csv = [
+      'Title,Url,Username,Password,OTPAuth,Favorite,Archived,Tags,Notes',
+      'AWS Console,https://aws.amazon.com,devops,aws-pass,otpauth://totp/AWS?secret=JBSWY3DPEHPK3PXP,true,false,cloud,prod account',
+    ].join('\n');
+
+    const res = parseImportFile(csv);
+    expect(res.format).toBe('1password-csv');
+    expect(res.items).toHaveLength(1);
+    expect(res.items[0]?.favorite).toBe(true);
+    expect(res.items[0]?.login?.totp).toBe('otpauth://totp/AWS?secret=JBSWY3DPEHPK3PXP');
+  });
+
+  it('parses 1Password 1PUX export.data JSON', () => {
+    const json = JSON.stringify({
+      accounts: [
+        {
+          vaults: [
+            {
+              items: [
+                {
+                  categoryUuid: '001',
+                  favIndex: 1,
+                  overview: { title: 'Linear', url: 'https://linear.app' },
+                  details: {
+                    notesPlain: 'workspace',
+                    loginFields: [
+                      { designation: 'username', value: 'liu@example.com' },
+                      { designation: 'password', value: 'lin-pass' },
+                    ],
+                    sections: [
+                      { fields: [{ title: 'one-time password', value: { totp: 'otpauth://totp/Linear?secret=ABCDEF' } }] },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    const res = parseImportFile(json);
+    expect(res.format).toBe('1password-json');
+    expect(res.items).toHaveLength(1);
+    expect(res.items[0]?.name).toBe('Linear');
+    expect(res.items[0]?.login?.username).toBe('liu@example.com');
+    expect(res.items[0]?.login?.totp).toBe('otpauth://totp/Linear?secret=ABCDEF');
+  });
 });

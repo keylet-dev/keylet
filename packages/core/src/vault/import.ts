@@ -1,7 +1,12 @@
 import { CipherType } from '../api/types.js';
 import type { CipherInput } from './decrypt.js';
 
-export type ImportFormat = 'bitwarden-json' | 'bitwarden-csv' | 'chrome-csv';
+export type ImportFormat =
+  | 'bitwarden-json'
+  | 'bitwarden-csv'
+  | 'chrome-csv'
+  | '1password-csv'
+  | '1password-json';
 
 export interface ImportParseResult {
   format: ImportFormat;
@@ -59,8 +64,108 @@ export function parseCsv(text: string): string[][] {
   return rows;
 }
 
+function parse1PasswordJson(raw: string): ImportParseResult {
+  const parsed = JSON.parse(raw) as {
+    accounts?: Array<{
+      vaults?: Array<{
+        items?: Array<{
+          categoryUuid?: string;
+          favIndex?: number;
+          overview?: {
+            title?: string;
+            url?: string;
+            urls?: Array<{ url?: string }>;
+          };
+          details?: {
+            notesPlain?: string;
+            loginFields?: Array<{
+              designation?: string;
+              value?: string;
+            }>;
+            sections?: Array<{
+              fields?: Array<{
+                title?: string;
+                value?: {
+                  totp?: string;
+                  string?: string;
+                  concealed?: string;
+                };
+              }>;
+            }>;
+          };
+        }>;
+      }>;
+    }>;
+  };
+
+  const items: CipherInput[] = [];
+  let skipped = 0;
+
+  for (const acc of parsed.accounts ?? []) {
+    for (const vault of acc.vaults ?? []) {
+      for (const item of vault.items ?? []) {
+        const name = item.overview?.title?.trim();
+        if (!name) {
+          skipped++;
+          continue;
+        }
+        const notes = item.details?.notesPlain || null;
+        const favorite = (item.favIndex ?? 0) > 0;
+
+        // 003 = Secure Note in 1PUX
+        if (item.categoryUuid === '003') {
+          items.push({
+            type: CipherType.SecureNote,
+            name,
+            notes,
+            favorite,
+          });
+          continue;
+        }
+
+        const loginFields = item.details?.loginFields ?? [];
+        const username =
+          loginFields.find((f) => f.designation === 'username')?.value ?? null;
+        const password =
+          loginFields.find((f) => f.designation === 'password')?.value ?? null;
+
+        let totp: string | null = null;
+        for (const sec of item.details?.sections ?? []) {
+          for (const f of sec.fields ?? []) {
+            if (f.value?.totp) {
+              totp = f.value.totp;
+              break;
+            }
+          }
+          if (totp) break;
+        }
+
+        const uris = [
+          ...(item.overview?.url ? [{ url: item.overview.url }] : []),
+          ...(item.overview?.urls ?? []),
+        ]
+          .map((u) => u.url?.trim() ?? '')
+          .filter((u) => u.length > 0)
+          .filter((u, idx, arr) => arr.indexOf(u) === idx)
+          .map((u) => ({ uri: u, match: null }));
+
+        items.push({
+          type: CipherType.Login,
+          name,
+          notes,
+          favorite,
+          login: { username, password, totp, uris },
+        });
+      }
+    }
+  }
+
+  return { format: '1password-json', items, skipped };
+}
+
 function parseBitwardenJson(raw: string): ImportParseResult {
   const parsed = JSON.parse(raw) as {
+    accounts?: unknown[];
     items?: Array<{
       type?: number;
       name?: string;
@@ -83,8 +188,12 @@ function parseBitwardenJson(raw: string): ImportParseResult {
     }>;
   };
 
+  if (Array.isArray(parsed.accounts)) {
+    return parse1PasswordJson(raw);
+  }
+
   if (!Array.isArray(parsed.items)) {
-    throw new Error('Invalid Bitwarden JSON: missing items array');
+    throw new Error('Invalid JSON export: missing Bitwarden items or 1Password accounts');
   }
 
   const items: CipherInput[] = [];
@@ -195,6 +304,52 @@ function parseCsvRows(rows: string[][]): ImportParseResult {
       }
     }
     return { format: 'bitwarden-csv', items, skipped };
+  }
+
+  // 1Password CSV format: Title,Url/Website,Username,Password,OTPAuth,Favorite,...,Notes,Type
+  if (headers.includes('title') && (headers.includes('otpauth') || headers.includes('website') || headers.includes('archived'))) {
+    const idxTitle = col('title');
+    const idxUrl = col('url') !== -1 ? col('url') : col('website');
+    const idxUser = col('username');
+    const idxPass = col('password');
+    const idxOtp = col('otpauth');
+    const idxFav = col('favorite');
+    const idxNotes = col('notes');
+    const idxType = col('type');
+
+    const items: CipherInput[] = [];
+    let skipped = 0;
+
+    for (const r of rows.slice(1)) {
+      const name = (idxTitle >= 0 ? r[idxTitle] : '')?.trim();
+      if (!name) {
+        skipped++;
+        continue;
+      }
+      const rawType = (idxType >= 0 ? r[idxType] : 'Login')?.trim().toLowerCase();
+      const favVal = (idxFav >= 0 ? r[idxFav] : '')?.trim().toLowerCase();
+      const favorite = favVal === 'true' || favVal === '1';
+      const notes = idxNotes >= 0 ? r[idxNotes] || null : null;
+
+      if (rawType === 'secure note' || rawType === 'note') {
+        items.push({ type: CipherType.SecureNote, name, notes, favorite });
+      } else {
+        const uriStr = idxUrl >= 0 ? r[idxUrl]?.trim() : '';
+        items.push({
+          type: CipherType.Login,
+          name,
+          notes,
+          favorite,
+          login: {
+            username: idxUser >= 0 ? r[idxUser] || null : null,
+            password: idxPass >= 0 ? r[idxPass] || null : null,
+            totp: idxOtp >= 0 ? r[idxOtp] || null : null,
+            uris: uriStr ? [{ uri: uriStr, match: null }] : [],
+          },
+        });
+      }
+    }
+    return { format: '1password-csv', items, skipped };
   }
 
   // Chrome / Edge / Brave Passwords CSV format: name,url,username,password[,note]
