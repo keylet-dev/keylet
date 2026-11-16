@@ -37,6 +37,11 @@ import {
   findCipherByQuery,
   resolveRunEnvironment,
 } from './run.js';
+import {
+  installSkill,
+  KEYLET_SKILL_MD,
+  resolveSkillTargetDir,
+} from './skills.js';
 
 const BIN_PATH = fileURLToPath(import.meta.url);
 
@@ -52,6 +57,7 @@ Command Groups:
   folder    Manage folders (list, add, rm)
   vault     Sync & import vault data (sync, import)
   ssh       SSH keys & in-memory agent (agent, add, list)
+  skills    Install or inspect the Keylet AI Agent Skill (install, show, path)
 
 Standalone Commands:
   run       Run a command with vault secrets injected into env
@@ -104,6 +110,14 @@ Subcommands:
   agent                         Start in-memory SSH agent & print SSH_AUTH_SOCK export
   add --name <name> [--generate]  Add or generate an Ed25519 SSH key item
   list [--json]                 List SSH key items in vault`);
+      break;
+    case 'skills':
+      console.log(`Usage: keylet skills <subcommand>
+
+Subcommands:
+  install [--global] [--dir <path>]  Install Keylet SKILL.md for AI coding agents
+  show                               Print bundled SKILL.md to stdout
+  path [--global] [--dir <path>]     Print target skill directory path`);
       break;
   }
 }
@@ -632,6 +646,31 @@ async function handleSshGroup(args: string[]): Promise<void> {
   }
 }
 
+function handleSkillsGroup(args: string[]): void {
+  const [sub, ...rest] = args;
+  if (!sub || wantsHelp([sub])) {
+    printGroupHelp('skills');
+    return;
+  }
+  const dir = getFlag(rest, '--dir');
+  const global = hasFlag(rest, '--global');
+  switch (sub) {
+    case 'install': {
+      const filePath = installSkill({ dir, global });
+      console.log(`Installed Keylet skill to ${filePath}`);
+      break;
+    }
+    case 'show':
+      process.stdout.write(KEYLET_SKILL_MD);
+      break;
+    case 'path':
+      console.log(resolveSkillTargetDir({ dir, global }));
+      break;
+    default:
+      throw new Error(`Unknown skills subcommand: ${sub}`);
+  }
+}
+
 // --- Standalone commands ---
 function cmdGenerate(args: string[]): void {
   const lenRaw = getFlag(args, '--length');
@@ -708,6 +747,9 @@ async function main(): Promise<void> {
       break;
     case 'ssh':
       await handleSshGroup(rest);
+      break;
+    case 'skills':
+      handleSkillsGroup(rest);
       break;
 
     // Standalone commands

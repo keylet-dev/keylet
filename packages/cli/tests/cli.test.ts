@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -8,6 +9,7 @@ import {
   generateEd25519SshKeyPair,
 } from '@keylet/core';
 import { KeyletSshAgent, parseOpenSshEd25519 } from '../src/sshAgent.js';
+import { installSkill } from '../src/skills.js';
 import {
   extractCipherField,
   findCipherByQuery,
@@ -122,5 +124,15 @@ describe('@keylet/cli run & query helpers', () => {
     const rawSig = sigBlob.subarray(8 + algoLen, 8 + algoLen + rawSigLen);
     const pubKeyObj = crypto.createPublicKey(parsed!.privateKey);
     expect(crypto.verify(null, challenge, pubKeyObj, rawSig)).toBe(true);
+  });
+
+  it('installs Keylet SKILL.md to target directory', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'keylet-skill-'));
+    const installed = installSkill({ dir: tmpDir });
+    expect(fs.existsSync(installed)).toBe(true);
+    const content = fs.readFileSync(installed, 'utf8');
+    expect(content).toContain('name: keylet');
+    expect(content).toContain('keylet run');
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });
