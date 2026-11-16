@@ -32,13 +32,13 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Run unit tests & build Debug APK
+      - name: Run unit tests & build Release APK
         working-directory: android
-        run: gradle testDebugUnitTest assembleDebug --no-daemon
+        run: gradle testDebugUnitTest assembleRelease --no-daemon
 
-      - name: Upload Debug APK
+      - name: Upload Release APK
         uses: actions/upload-artifact@v7
         with:
-          name: keylet-android-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: keylet-android-release
+          path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error

@@ -1,3 +1,6 @@
 -keepattributes *Annotation*
 -keep class kotlinx.serialization.** { *; }
 -keepclassmembers class me.keylet.app.data.** { *; }
+-dontwarn org.bouncycastle.**
+-dontwarn okhttp3.**
+-dontwarn okio.**

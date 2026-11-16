@@ -19,9 +19,29 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            val keystorePath = System.getenv("KEYLET_KEYSTORE_PATH")
+            if (!keystorePath.isNullOrBlank() && file(keystorePath).exists()) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("KEYLET_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEYLET_KEY_ALIAS")
+                keyPassword = System.getenv("KEYLET_KEY_PASSWORD")
+            } else {
+                val debugCfg = signingConfigs.getByName("debug")
+                storeFile = debugCfg.storeFile
+                storePassword = debugCfg.storePassword
+                keyAlias = debugCfg.keyAlias
+                keyPassword = debugCfg.keyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
