@@ -153,43 +153,142 @@ export default defineContentScript({
       const rect = target.getBoundingClientRect();
       const host = document.createElement('div');
       host.style.position = 'fixed';
-      host.style.top = `${Math.min(window.innerHeight - 160, rect.bottom + 4)}px`;
+      host.style.top = `${Math.min(window.innerHeight - 220, rect.bottom + 6)}px`;
       host.style.left = `${Math.max(8, rect.left)}px`;
-      host.style.width = `${Math.max(240, Math.min(340, rect.width))}px`;
+      host.style.width = `${Math.max(260, Math.min(460, rect.width))}px`;
       host.style.zIndex = '2147483647';
 
       const shadow = host.attachShadow({ mode: 'closed' });
       const style = document.createElement('style');
       style.textContent = `
+        @keyframes keyletPop {
+          from { opacity: 0; transform: translateY(-4px) scale(0.985); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
         .card {
-          background: #151820;
+          background: rgba(20, 23, 30, 0.94);
+          backdrop-filter: blur(16px);
+          -webkit-backdrop-filter: blur(16px);
           color: #f3f4f6;
-          border: 1px solid rgba(255,255,255,0.14);
-          border-radius: 8px;
-          box-shadow: 0 12px 28px rgba(0,0,0,0.45);
-          font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+          border: 1px solid rgba(255, 255, 255, 0.14);
+          border-radius: 12px;
+          box-shadow: 0 18px 42px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 0, 0, 0.25);
+          font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
           overflow: hidden;
-          font-size: 12.5px;
+          font-size: 13px;
+          animation: keyletPop 110ms ease-out;
         }
         .header {
-          padding: 5px 10px;
-          font-size: 10.5px;
+          padding: 7px 12px;
+          font-size: 11px;
           font-weight: 600;
           color: #9ca3af;
-          border-bottom: 1px solid rgba(255,255,255,0.08);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
           display: flex;
+          align-items: center;
           justify-content: space-between;
+          background: rgba(255, 255, 255, 0.02);
+        }
+        .brand {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          color: #e5e7eb;
+        }
+        .brand-icon {
+          width: 16px;
+          height: 16px;
+          border-radius: 4px;
+          background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: #fff;
+        }
+        .count {
+          font-size: 10.5px;
+          color: #6b7280;
+          font-weight: 500;
+        }
+        .list {
+          padding: 5px;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          max-height: 240px;
+          overflow-y: auto;
         }
         .item {
-          padding: 7px 10px;
+          padding: 7px 9px;
+          border-radius: 8px;
           cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          transition: background 90ms ease;
+        }
+        .item:hover {
+          background: rgba(59, 130, 246, 0.16);
+        }
+        .avatar {
+          width: 28px;
+          height: 28px;
+          border-radius: 7px;
+          background: rgba(255, 255, 255, 0.06);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #60a5fa;
+          font-weight: 600;
+          font-size: 12px;
+          flex-shrink: 0;
+        }
+        .meta {
+          flex: 1;
+          min-width: 0;
           display: flex;
           flex-direction: column;
           gap: 1px;
         }
-        .item:hover { background: #232938; }
-        .name { font-weight: 500; color: #f9fafb; }
-        .user { font-size: 11px; color: #9ca3af; }
+        .name-row {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .name {
+          font-weight: 500;
+          color: #f9fafb;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .totp-pill {
+          font-size: 9.5px;
+          font-weight: 600;
+          padding: 1px 5px;
+          border-radius: 4px;
+          background: rgba(16, 185, 129, 0.16);
+          color: #34d399;
+          flex-shrink: 0;
+        }
+        .user {
+          font-size: 11.5px;
+          color: #9ca3af;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .fill-hint {
+          font-size: 11px;
+          color: #60a5fa;
+          opacity: 0;
+          transition: opacity 90ms ease;
+          flex-shrink: 0;
+        }
+        .item:hover .fill-hint {
+          opacity: 1;
+        }
       `;
 
       const card = document.createElement('div');
@@ -197,19 +296,58 @@ export default defineContentScript({
 
       const header = document.createElement('div');
       header.className = 'header';
-      header.innerHTML = '<span>Keylet</span><span>Autofill</span>';
+      header.innerHTML = `
+        <span class="brand">
+          <span class="brand-icon">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="7.5" cy="15.5" r="4.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>
+            </svg>
+          </span>
+          <span>Keylet</span>
+        </span>
+        <span class="count">${matches.length} ${matches.length === 1 ? 'match' : 'matches'}</span>
+      `;
       card.appendChild(header);
 
-      for (const m of matches.slice(0, 4)) {
+      const list = document.createElement('div');
+      list.className = 'list';
+
+      for (const m of matches.slice(0, 5)) {
         const row = document.createElement('div');
         row.className = 'item';
+
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        avatar.textContent = (m.name.trim()[0] ?? 'K').toUpperCase();
+
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+
+        const nameRow = document.createElement('div');
+        nameRow.className = 'name-row';
+
         const nameEl = document.createElement('div');
         nameEl.className = 'name';
         nameEl.textContent = m.name;
+        nameRow.appendChild(nameEl);
+
+        if (m.login?.totp) {
+          const totpPill = document.createElement('span');
+          totpPill.className = 'totp-pill';
+          totpPill.textContent = '2FA';
+          nameRow.appendChild(totpPill);
+        }
+
         const userEl = document.createElement('div');
         userEl.className = 'user';
         userEl.textContent = m.login?.username || 'No username';
-        row.append(nameEl, userEl);
+        meta.append(nameRow, userEl);
+
+        const hint = document.createElement('span');
+        hint.className = 'fill-hint';
+        hint.textContent = 'Fill';
+
+        row.append(avatar, meta, hint);
 
         row.addEventListener('mousedown', (e) => {
           e.preventDefault();
@@ -219,9 +357,10 @@ export default defineContentScript({
           });
           removePopover();
         });
-        card.appendChild(row);
+        list.appendChild(row);
       }
 
+      card.appendChild(list);
       shadow.append(style, card);
       document.documentElement.appendChild(host);
       popoverHost = host;
