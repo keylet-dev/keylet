@@ -3,6 +3,7 @@ package me.keylet.app.data
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import java.security.KeyStore
+import java.security.MessageDigest
 import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -11,15 +12,22 @@ import javax.crypto.spec.GCMParameterSpec
 
 object BiometricKeyStore {
     private const val ANDROID_KEYSTORE = "AndroidKeyStore"
-    private const val KEY_ALIAS = "keylet_biometric_sym_wrap"
 
-    private fun getOrCreateKey(): SecretKey {
+    private fun aliasFor(accountId: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(accountId.toByteArray(Charsets.UTF_8))
+        val hex = digest.take(8).joinToString("") { "%02x".format(it) }
+        return "keylet_bio_$hex"
+    }
+
+    private fun getOrCreateKey(accountId: String): SecretKey {
+        val alias = aliasFor(accountId)
         val ks = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        val existing = ks.getKey(KEY_ALIAS, null) as? SecretKey
+        val existing = ks.getKey(alias, null) as? SecretKey
         if (existing != null) return existing
 
         val spec = KeyGenParameterSpec.Builder(
-            KEY_ALIAS,
+            alias,
             KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
         )
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
@@ -33,21 +41,22 @@ object BiometricKeyStore {
         return keyGen.generateKey()
     }
 
-    fun getEncryptCipher(): Cipher {
+    fun getEncryptCipher(accountId: String): Cipher {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey(accountId))
         return cipher
     }
 
-    fun getDecryptCipher(ivB64: String): Cipher {
+    fun getDecryptCipher(accountId: String, ivB64: String): Cipher {
         val iv = Base64.getDecoder().decode(ivB64)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
+        cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(accountId), GCMParameterSpec(128, iv))
         return cipher
     }
 
-    fun deleteKey() {
+    fun deleteKey(accountId: String) {
+        val alias = aliasFor(accountId)
         val ks = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        if (ks.containsAlias(KEY_ALIAS)) ks.deleteEntry(KEY_ALIAS)
+        if (ks.containsAlias(alias)) ks.deleteEntry(alias)
     }
 }

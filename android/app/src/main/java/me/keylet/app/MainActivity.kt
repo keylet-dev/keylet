@@ -60,14 +60,19 @@ class MainActivity : FragmentActivity() {
                     Toast.makeText(this, "Copied $label", Toast.LENGTH_SHORT).show()
                 }
 
-                when (state.authState) {
-                    VaultAuthState.LOGGED_OUT -> {
-                        LoginScreen { serverUrl, email, pw, provider, token ->
+                when {
+                    state.authState == VaultAuthState.LOGGED_OUT || subScreen == "add_account" -> {
+                        LoginScreen(
+                            onCancel = if (state.accounts.isNotEmpty()) {
+                                { subScreen = "list" }
+                            } else null
+                        ) { serverUrl, email, pw, provider, token ->
                             repo.login(serverUrl, email, pw, provider, token)
+                            subScreen = "list"
                         }
                     }
 
-                    VaultAuthState.LOCKED -> {
+                    state.authState == VaultAuthState.LOCKED -> {
                         LockScreen(
                             state = state,
                             onUnlockPassword = { pw -> repo.unlock(pw) },
@@ -79,11 +84,13 @@ class MainActivity : FragmentActivity() {
                                     }
                                 }
                             },
+                            onSwitchAccount = { id -> repo.switchAccount(id) },
+                            onAddAccount = { subScreen = "add_account" },
                             onLogout = { repo.logout() }
                         )
                     }
 
-                    VaultAuthState.UNLOCKED -> {
+                    state.authState == VaultAuthState.UNLOCKED -> {
                         when {
                             subScreen == "generator" -> {
                                 GeneratorScreen(
@@ -101,8 +108,9 @@ class MainActivity : FragmentActivity() {
                                         Toast.makeText(this, "Vault synced", Toast.LENGTH_SHORT).show()
                                     },
                                     onToggleBiometric = { enabled ->
-                                        if (enabled) {
-                                            val cipher = BiometricKeyStore.getEncryptCipher()
+                                        val activeId = state.activeAccountId
+                                        if (enabled && activeId != null) {
+                                            val cipher = BiometricKeyStore.getEncryptCipher(activeId)
                                             authenticateWithBiometrics("Enable Biometric Unlock", cipher) { authed ->
                                                 repo.enableBiometric(authed)
                                             }
@@ -115,6 +123,15 @@ class MainActivity : FragmentActivity() {
                                             data = Uri.parse("package:$packageName")
                                         }
                                         startActivity(intent)
+                                    },
+                                    onSwitchAccount = { id ->
+                                        selectedCipher = null
+                                        subScreen = "list"
+                                        repo.switchAccount(id)
+                                    },
+                                    onAddAccount = {
+                                        selectedCipher = null
+                                        subScreen = "add_account"
                                     },
                                     onLock = {
                                         selectedCipher = null

@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import me.keylet.app.crypto.KdfConfig
 import me.keylet.app.crypto.KeyletCrypto
@@ -21,6 +23,12 @@ enum class VaultAuthState {
     LOCKED,
     UNLOCKED
 }
+
+data class AccountSummary(
+    val id: String,
+    val serverUrl: String,
+    val email: String
+)
 
 @Serializable
 data class StoredAccount(
@@ -40,6 +48,8 @@ data class StoredAccount(
 
 data class VaultUiState(
     val authState: VaultAuthState = VaultAuthState.LOGGED_OUT,
+    val activeAccountId: String? = null,
+    val accounts: List<AccountSummary> = emptyList(),
     val serverUrl: String? = null,
     val email: String? = null,
     val lastSyncAt: Long? = null,
@@ -51,6 +61,7 @@ data class VaultUiState(
 class VaultRepository private constructor(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("keylet_vault", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
+    private val accountsMapSerializer = MapSerializer(String.serializer(), StoredAccount.serializer())
 
     private var memSymKey: SymmetricKey? = null
     private var memAccessToken: String? = null
@@ -60,37 +71,85 @@ class VaultRepository private constructor(context: Context) {
     val state: StateFlow<VaultUiState> = _state.asStateFlow()
 
     init {
+        migrateLegacyIfNeeded()
         refreshStateFromDisk()
     }
 
-    private fun readAccount(): StoredAccount? {
-        val raw = prefs.getString("account", null) ?: return null
-        return runCatching { json.decodeFromString<StoredAccount>(raw) }.getOrNull()
+    private fun makeAccountId(serverUrl: String, email: String): String =
+        "$serverUrl|${email.trim().lowercase()}"
+
+    private fun migrateLegacyIfNeeded() {
+        val legacyRaw = prefs.getString("account", null) ?: return
+        val existingMap = prefs.getString("accounts_map", null)
+        if (existingMap != null) return
+        val legacy = runCatching { json.decodeFromString<StoredAccount>(legacyRaw) }.getOrNull() ?: return
+        val id = makeAccountId(legacy.serverUrl, legacy.email)
+        val editor = prefs.edit()
+        editor.putString("accounts_map", json.encodeToString(accountsMapSerializer, mapOf(id to legacy)))
+        editor.putString("active_account_id", id)
+        prefs.getString("snapshot", null)?.let { snap ->
+            editor.putString("snapshot_$id", snap)
+        }
+        editor.remove("account").remove("snapshot").apply()
     }
 
-    private fun saveAccount(account: StoredAccount) {
-        prefs.edit().putString("account", json.encodeToString(StoredAccount.serializer(), account)).apply()
+    private fun readAccountsMap(): MutableMap<String, StoredAccount> {
+        val raw = prefs.getString("accounts_map", null) ?: return mutableMapOf()
+        return runCatching { json.decodeFromString(accountsMapSerializer, raw).toMutableMap() }
+            .getOrDefault(mutableMapOf())
+    }
+
+    private fun saveAccountsMap(map: Map<String, StoredAccount>, activeId: String?) {
+        val editor = prefs.edit()
+        editor.putString("accounts_map", json.encodeToString(accountsMapSerializer, map))
+        if (activeId == null) editor.remove("active_account_id")
+        else editor.putString("active_account_id", activeId)
+        editor.apply()
+    }
+
+    private fun readActiveId(): String? = prefs.getString("active_account_id", null)
+
+    private fun readAccount(): StoredAccount? {
+        val id = readActiveId() ?: return null
+        return readAccountsMap()[id]
+    }
+
+    private fun saveAccount(account: StoredAccount, makeActive: Boolean = true) {
+        val map = readAccountsMap()
+        val id = makeAccountId(account.serverUrl, account.email)
+        map[id] = account
+        val nextActive = if (makeActive) id else (readActiveId() ?: id)
+        saveAccountsMap(map, nextActive)
     }
 
     private fun readSnapshot(): EncryptedSyncResponse? {
-        val raw = prefs.getString("snapshot", null) ?: return null
+        val id = readActiveId() ?: return null
+        val raw = prefs.getString("snapshot_$id", null) ?: return null
         return runCatching { json.decodeFromString<EncryptedSyncResponse>(raw) }.getOrNull()
     }
 
-    private fun saveSnapshot(snapshot: EncryptedSyncResponse) {
-        prefs.edit().putString("snapshot", json.encodeToString(EncryptedSyncResponse.serializer(), snapshot)).apply()
+    private fun saveSnapshot(accountId: String, snapshot: EncryptedSyncResponse) {
+        prefs.edit().putString("snapshot_$accountId", json.encodeToString(EncryptedSyncResponse.serializer(), snapshot)).apply()
     }
 
     private fun refreshStateFromDisk(
         ciphers: List<DecryptedCipher> = emptyList(),
         folders: List<DecryptedFolder> = emptyList()
     ) {
-        val account = readAccount()
+        val map = readAccountsMap()
+        val activeId = readActiveId()
+        val account = activeId?.let { map[it] }
+        val summaries = map.entries.map { (id, acc) ->
+            AccountSummary(id = id, serverUrl = acc.serverUrl, email = acc.email)
+        }
+
         _state.value = if (account == null) {
-            VaultUiState(authState = VaultAuthState.LOGGED_OUT)
+            VaultUiState(authState = VaultAuthState.LOGGED_OUT, accounts = summaries)
         } else {
             VaultUiState(
                 authState = if (memSymKey != null) VaultAuthState.UNLOCKED else VaultAuthState.LOCKED,
+                activeAccountId = activeId,
+                accounts = summaries,
                 serverUrl = account.serverUrl,
                 email = account.email,
                 lastSyncAt = account.lastSyncAt,
@@ -110,7 +169,8 @@ class VaultRepository private constructor(context: Context) {
     ) = withContext(Dispatchers.Default) {
         val normalizedUrl = BitwardenApi.normalizeServerUrl(serverUrl)
         val normalizedEmail = email.trim().lowercase()
-        val existing = readAccount()
+        val id = makeAccountId(normalizedUrl, normalizedEmail)
+        val existing = readAccountsMap()[id]
         val deviceId = existing?.deviceId ?: UUID.randomUUID().toString()
 
         val kdfConfig = BitwardenApi.prelogin(normalizedUrl, normalizedEmail)
@@ -144,7 +204,7 @@ class VaultRepository private constructor(context: Context) {
             protectedKey = tokenRes.key,
             lastSyncAt = null
         )
-        saveAccount(account)
+        saveAccount(account, makeActive = true)
         performSync(account, symKey)
     }
 
@@ -176,9 +236,10 @@ class VaultRepository private constructor(context: Context) {
     }
 
     fun getBiometricDecryptCipher(): Cipher? {
+        val id = readActiveId() ?: return null
         val account = readAccount() ?: return null
         val iv = account.biometricIvB64 ?: return null
-        return runCatching { BiometricKeyStore.getDecryptCipher(iv) }.getOrNull()
+        return runCatching { BiometricKeyStore.getDecryptCipher(id, iv) }.getOrNull()
     }
 
     suspend fun unlockWithBiometricCipher(cipher: Cipher) = withContext(Dispatchers.Default) {
@@ -212,8 +273,9 @@ class VaultRepository private constructor(context: Context) {
     }
 
     fun disableBiometric() {
+        val id = readActiveId() ?: return
         val account = readAccount() ?: return
-        BiometricKeyStore.deleteKey()
+        BiometricKeyStore.deleteKey(id)
         saveAccount(
             account.copy(
                 biometricEnabled = false,
@@ -241,7 +303,8 @@ class VaultRepository private constructor(context: Context) {
             if (refreshed.refreshToken != null) memRefreshToken = refreshed.refreshToken
             BitwardenApi.syncVault(account.serverUrl, refreshed.accessToken)
         }
-        saveSnapshot(syncRes)
+        val id = makeAccountId(account.serverUrl, account.email)
+        saveSnapshot(id, syncRes)
         val updated = account.copy(lastSyncAt = System.currentTimeMillis())
         saveAccount(updated)
         val (ciphers, folders) = decryptSnapshot(syncRes, symKey)
@@ -271,6 +334,14 @@ class VaultRepository private constructor(context: Context) {
 
     fun getSymmetricKeyOrThrow(): SymmetricKey = memSymKey ?: error("Vault is locked")
 
+    fun switchAccount(accountId: String) {
+        val map = readAccountsMap()
+        if (!map.containsKey(accountId)) return
+        lock()
+        saveAccountsMap(map, accountId)
+        refreshStateFromDisk()
+    }
+
     fun lock() {
         memSymKey?.wipe()
         memSymKey = null
@@ -279,10 +350,18 @@ class VaultRepository private constructor(context: Context) {
         refreshStateFromDisk()
     }
 
-    fun logout() {
+    fun logout(targetId: String? = null) {
         lock()
-        BiometricKeyStore.deleteKey()
-        prefs.edit().clear().apply()
+        val map = readAccountsMap()
+        val active = readActiveId()
+        val idToRemove = targetId ?: active
+        if (idToRemove != null) {
+            BiometricKeyStore.deleteKey(idToRemove)
+            map.remove(idToRemove)
+            prefs.edit().remove("snapshot_$idToRemove").apply()
+        }
+        val nextActive = if (idToRemove == active) map.keys.firstOrNull() else active
+        saveAccountsMap(map, nextActive)
         refreshStateFromDisk()
     }
 

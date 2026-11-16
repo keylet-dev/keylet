@@ -101,6 +101,7 @@ import me.keylet.app.data.VaultUiState
 
 @Composable
 fun LoginScreen(
+    onCancel: (() -> Unit)? = null,
     onLogin: suspend (serverUrl: String, email: String, password: String, twoFactorProvider: Int?, twoFactorToken: String?) -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -130,6 +131,11 @@ fun LoginScreen(
         ) {
             Spacer(Modifier.height(16.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (onCancel != null) {
+                    IconButton(onClick = onCancel) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                    }
+                }
                 KeyletLogo(size = 40.dp)
                 Spacer(Modifier.width(12.dp))
                 Column {
@@ -242,6 +248,8 @@ fun LockScreen(
     state: VaultUiState,
     onUnlockPassword: suspend (String) -> Unit,
     onTriggerBiometric: () -> Unit,
+    onSwitchAccount: (String) -> Unit,
+    onAddAccount: () -> Unit,
     onLogout: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -316,6 +324,27 @@ fun LockScreen(
                 Spacer(Modifier.width(8.dp))
                 Text("Unlock with Biometrics")
             }
+        }
+
+        if (state.accounts.size > 1) {
+            Spacer(Modifier.height(12.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(state.accounts, key = { it.id }) { acc ->
+                    FilterChip(
+                        selected = acc.id == state.activeAccountId,
+                        onClick = { onSwitchAccount(acc.id) },
+                        label = { Text(acc.email, fontSize = 12.sp) }
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = onAddAccount,
+            modifier = Modifier.fillMaxWidth().height(42.dp)
+        ) {
+            Text("Add Another Account")
         }
 
         Spacer(Modifier.height(8.dp))
@@ -948,6 +977,8 @@ fun SettingsScreen(
     onSync: suspend () -> Unit,
     onToggleBiometric: (Boolean) -> Unit,
     onOpenAutofillSettings: () -> Unit,
+    onSwitchAccount: (String) -> Unit,
+    onAddAccount: () -> Unit,
     onLock: () -> Unit,
     onLogout: () -> Unit
 ) {
@@ -981,6 +1012,45 @@ fun SettingsScreen(
                 Text(state.serverUrl.orEmpty(), color = KeyletColors.TextSecondary, fontSize = 12.sp)
                 HorizontalDivider(color = KeyletColors.BorderSubtle)
                 Text("${state.ciphers.size} items synced", color = KeyletColors.TextMuted, fontSize = 12.sp)
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Accounts (${state.accounts.size})", color = KeyletColors.TextSecondary, fontSize = 12.sp)
+                OutlinedButton(onClick = onAddAccount) {
+                    Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Add Account", fontSize = 12.sp)
+                }
+            }
+
+            state.accounts.forEach { acc ->
+                val isActive = acc.id == state.activeAccountId
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(KeyletColors.BgElevated)
+                        .border(1.dp, if (isActive) KeyletColors.BorderAccent else KeyletColors.BorderSubtle, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(acc.email, color = KeyletColors.TextPrimary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(acc.serverUrl, color = KeyletColors.TextMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (isActive) {
+                        Text("Active", color = KeyletColors.Success, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    } else {
+                        OutlinedButton(onClick = { onSwitchAccount(acc.id) }) {
+                            Text("Switch", fontSize = 12.sp)
+                        }
+                    }
+                }
             }
 
             Row(
