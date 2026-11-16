@@ -14,12 +14,14 @@ import {
 import { Switch, SwitchThumb } from '@ui-sdk/react/switch';
 import { ArrowLeft, Eye, EyeOff, Save, Wand2 } from 'lucide-react';
 import {
+  type CipherInput,
   CipherType,
   type DecryptedCipher,
   type DecryptedFolder,
+  DEFAULT_PASSWORD_OPTIONS,
+  generateEd25519SshKeyPair,
+  generatePassword,
 } from '@keylet/core';
-import { DEFAULT_PASSWORD_OPTIONS, generatePassword } from '@keylet/core';
-import type { CipherInput } from '@keylet/core';
 
 interface CipherFormProps {
   initialCipher?: DecryptedCipher | null;
@@ -29,11 +31,12 @@ interface CipherFormProps {
   onSave: (cipher: CipherInput, cipherId?: string) => Promise<void>;
 }
 
-type FormType = 'login' | 'note' | 'card';
+type FormType = 'login' | 'note' | 'card' | 'ssh';
 
 function toFormType(t?: CipherType): FormType {
   if (t === CipherType.SecureNote) return 'note';
   if (t === CipherType.Card) return 'card';
+  if (t === CipherType.SshKey) return 'ssh';
   return 'login';
 }
 
@@ -71,6 +74,11 @@ export function CipherForm({
   const [expYear, setExpYear] = useState(initialCipher?.card?.expYear ?? '');
   const [cvv, setCvv] = useState(initialCipher?.card?.code ?? '');
 
+  // SSH Key fields
+  const [sshPrivate, setSshPrivate] = useState(initialCipher?.sshKey?.privateKey ?? '');
+  const [sshPublic, setSshPublic] = useState(initialCipher?.sshKey?.publicKey ?? '');
+  const [sshFingerprint, setSshFingerprint] = useState(initialCipher?.sshKey?.keyFingerprint ?? '');
+
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -90,7 +98,9 @@ export function CipherForm({
           ? CipherType.SecureNote
           : formType === 'card'
             ? CipherType.Card
-            : CipherType.Login;
+            : formType === 'ssh'
+              ? CipherType.SshKey
+              : CipherType.Login;
 
       const payload: CipherInput = {
         type,
@@ -115,6 +125,12 @@ export function CipherForm({
           expMonth: expMonth || null,
           expYear: expYear || null,
           code: cvv || null,
+        };
+      } else if (type === CipherType.SshKey) {
+        payload.sshKey = {
+          privateKey: sshPrivate || null,
+          publicKey: sshPublic || null,
+          keyFingerprint: sshFingerprint || null,
         };
       }
 
@@ -169,6 +185,9 @@ export function CipherForm({
             </SegmentedControlItem>
             <SegmentedControlItem className="segmented-item" value="card">
               Card
+            </SegmentedControlItem>
+            <SegmentedControlItem className="segmented-item" value="ssh">
+              SSH
             </SegmentedControlItem>
           </SegmentedControl>
         )}
@@ -341,6 +360,61 @@ export function CipherForm({
                 placeholder="Visa / Mastercard"
                 value={brand}
                 onValueChange={setBrand}
+              />
+            </div>
+          </>
+        )}
+
+        {formType === 'ssh' && (
+          <>
+            <Button
+              type="button"
+              className="btn"
+              onClick={async () => {
+                const kp = await generateEd25519SshKeyPair(name.trim() || 'keylet');
+                setSshPrivate(kp.privateKey);
+                setSshPublic(kp.publicKey);
+                setSshFingerprint(kp.keyFingerprint);
+              }}
+            >
+              <Wand2 size={14} />
+              Generate Ed25519 SSH Keypair
+            </Button>
+            <div className="field-group">
+              <label className="field-label" htmlFor="ssh-pub">
+                Public Key
+              </label>
+              <Input
+                id="ssh-pub"
+                className="text-input mono"
+                placeholder="ssh-ed25519 ..."
+                value={sshPublic}
+                onValueChange={setSshPublic}
+              />
+            </div>
+            <div className="field-group">
+              <label className="field-label" htmlFor="ssh-fp">
+                Fingerprint
+              </label>
+              <Input
+                id="ssh-fp"
+                className="text-input mono"
+                placeholder="SHA256:..."
+                value={sshFingerprint}
+                onValueChange={setSshFingerprint}
+              />
+            </div>
+            <div className="field-group">
+              <label className="field-label" htmlFor="ssh-priv">
+                Private Key
+              </label>
+              <textarea
+                id="ssh-priv"
+                className="text-input mono"
+                style={{ height: 84, padding: '8px 10px', fontSize: 11 }}
+                value={sshPrivate}
+                onChange={(e) => setSshPrivate(e.target.value)}
+                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
               />
             </div>
           </>

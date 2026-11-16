@@ -48,6 +48,9 @@ export async function extractCipherField(
   if (f === 'uri' && cipher.login?.uris[0]?.uri) return cipher.login.uris[0].uri;
   if (f === 'number' && cipher.card?.number) return cipher.card.number;
   if (f === 'cvv' && cipher.card?.code) return cipher.card.code;
+  if ((f === 'publickey' || f === 'public') && cipher.sshKey?.publicKey) return cipher.sshKey.publicKey;
+  if ((f === 'privatekey' || f === 'private') && cipher.sshKey?.privateKey) return cipher.sshKey.privateKey;
+  if (f === 'fingerprint' && cipher.sshKey?.keyFingerprint) return cipher.sshKey.keyFingerprint;
 
   const custom = cipher.fields.find((cf) => cf.name.toLowerCase() === f);
   if (custom) return custom.value;

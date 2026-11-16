@@ -1,5 +1,8 @@
 import type {
   EncryptedCipher,
+  EncryptedFolder,
+  EncryptedIdentity,
+  EncryptedSshKey,
   EncryptedSyncResponse,
   PreloginResponse,
   TokenResponse,
@@ -230,6 +233,8 @@ export interface CreateCipherPayload {
     expYear?: string | null;
     code?: string | null;
   };
+  identity?: EncryptedIdentity;
+  sshKey?: EncryptedSshKey;
 }
 
 export async function createCipher(
@@ -296,4 +301,141 @@ export async function deleteCipher(
   if (!res.ok) {
     throw new ApiError(await parseErrorMessage(res), res.status);
   }
+}
+
+export async function softDeleteCipher(
+  serverUrl: string,
+  accessToken: string,
+  cipherId: string,
+): Promise<void> {
+  const base = normalizeServerUrl(serverUrl);
+  const res = await fetch(`${base}/api/ciphers/${encodeURIComponent(cipherId)}/delete`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+    },
+  });
+  if (!res.ok) throw new ApiError(await parseErrorMessage(res), res.status);
+}
+
+export async function restoreCipher(
+  serverUrl: string,
+  accessToken: string,
+  cipherId: string,
+): Promise<EncryptedCipher> {
+  const base = normalizeServerUrl(serverUrl);
+  const res = await fetch(`${base}/api/ciphers/${encodeURIComponent(cipherId)}/restore`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+    },
+  });
+  if (!res.ok) throw new ApiError(await parseErrorMessage(res), res.status);
+  return (await res.json()) as EncryptedCipher;
+}
+
+export async function createFolder(
+  serverUrl: string,
+  accessToken: string,
+  encryptedName: string,
+): Promise<EncryptedFolder> {
+  const base = normalizeServerUrl(serverUrl);
+  const res = await fetch(`${base}/api/folders`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ name: encryptedName }),
+  });
+  if (!res.ok) throw new ApiError(await parseErrorMessage(res), res.status);
+  return (await res.json()) as EncryptedFolder;
+}
+
+export async function updateFolder(
+  serverUrl: string,
+  accessToken: string,
+  folderId: string,
+  encryptedName: string,
+): Promise<EncryptedFolder> {
+  const base = normalizeServerUrl(serverUrl);
+  const res = await fetch(`${base}/api/folders/${encodeURIComponent(folderId)}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ name: encryptedName }),
+  });
+  if (!res.ok) throw new ApiError(await parseErrorMessage(res), res.status);
+  return (await res.json()) as EncryptedFolder;
+}
+
+export async function deleteFolder(
+  serverUrl: string,
+  accessToken: string,
+  folderId: string,
+): Promise<void> {
+  const base = normalizeServerUrl(serverUrl);
+  const res = await fetch(`${base}/api/folders/${encodeURIComponent(folderId)}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+    },
+  });
+  if (!res.ok) throw new ApiError(await parseErrorMessage(res), res.status);
+}
+
+export async function getProfile(
+  serverUrl: string,
+  accessToken: string,
+): Promise<EncryptedSyncResponse['profile']> {
+  const base = normalizeServerUrl(serverUrl);
+  const res = await fetch(`${base}/api/accounts/profile`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+    },
+  });
+  if (!res.ok) throw new ApiError(await parseErrorMessage(res), res.status);
+  return (await res.json()) as EncryptedSyncResponse['profile'];
+}
+
+export async function listSends(
+  serverUrl: string,
+  accessToken: string,
+): Promise<unknown[]> {
+  const base = normalizeServerUrl(serverUrl);
+  const res = await fetch(`${base}/api/sends`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+    },
+  });
+  if (!res.ok) throw new ApiError(await parseErrorMessage(res), res.status);
+  const json = (await res.json()) as { data?: unknown[] };
+  return json.data ?? [];
+}
+
+export async function deleteSend(
+  serverUrl: string,
+  accessToken: string,
+  sendId: string,
+): Promise<void> {
+  const base = normalizeServerUrl(serverUrl);
+  const res = await fetch(`${base}/api/sends/${encodeURIComponent(sendId)}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+    },
+  });
+  if (!res.ok) throw new ApiError(await parseErrorMessage(res), res.status);
 }

@@ -37,6 +37,10 @@ export function getSocketPath(dir = getConfigDir()): string {
   return path.join(dir, 'agent.sock');
 }
 
+export function getSshSocketPath(dir = getConfigDir()): string {
+  return process.env.KEYLET_SSH_SOCK || path.join(dir, 'ssh.sock');
+}
+
 export function readAccount(dir = getConfigDir()): CliAccount | null {
   const p = getAccountPath(dir);
   if (!fs.existsSync(p)) return null;

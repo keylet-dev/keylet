@@ -49,6 +49,9 @@ function cipherSubtitle(c: MatchedCipher): string {
   if (c.type === CipherType.Identity) {
     return c.identity?.email || c.identity?.username || 'Identity';
   }
+  if (c.type === CipherType.SshKey) {
+    return c.sshKey?.keyFingerprint || 'SSH Key';
+  }
   return 'Secure Note';
 }
 

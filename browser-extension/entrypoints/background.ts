@@ -641,4 +641,25 @@ export default defineBackground(() => {
       await autofillCipherInTab(best.id, active.id);
     }
   });
+
+  browser.runtime.onInstalled.addListener(() => {
+    browser.contextMenus.create({
+      id: 'keylet-autofill',
+      title: 'Keylet: Autofill matching login',
+      contexts: ['editable', 'page'],
+    });
+  });
+
+  browser.contextMenus.onClicked.addListener(async (info, tab) => {
+    if (info.menuItemId !== 'keylet-autofill' || !tab?.id || !tab.url) return;
+    await restoreSessionIfNeeded();
+    if (!memSymKey) return;
+    const matches = rankCiphersForUrl(memCiphers, tab.url).filter(
+      (c) => c.matchScore > 0,
+    );
+    const best = matches[0];
+    if (best) {
+      await autofillCipherInTab(best.id, tab.id);
+    }
+  });
 });

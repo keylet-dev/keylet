@@ -1,13 +1,17 @@
 import {
   CipherType,
   type DecryptedCipher,
+  type DecryptedCollection,
   type DecryptedFolder,
+  type DecryptedOrganization,
   type EncryptedCipher,
   type EncryptedFolder,
   type EncryptedSyncResponse,
 } from '../api/types.js';
 import type { CreateCipherPayload } from '../api/client.js';
 import {
+  decryptOrganizationKey,
+  decryptPrivateKey,
   decryptToString,
   encryptString,
   type SymmetricKey,
@@ -44,11 +48,14 @@ export async function decryptCipher(
 
   const result: DecryptedCipher = {
     id: cipher.id,
+    organizationId: cipher.organizationId ?? null,
     folderId: cipher.folderId ?? null,
+    collectionIds: cipher.collectionIds ?? [],
     type: cipher.type,
     name: name ?? 'Untitled',
     notes,
     favorite: Boolean(cipher.favorite),
+    deletedDate: cipher.deletedDate ?? null,
     revisionDate: cipher.revisionDate,
     fields,
   };
@@ -86,29 +93,135 @@ export async function decryptCipher(
       ]);
     result.card = { cardholderName, brand, number, expMonth, expYear, code };
   } else if (cipher.type === CipherType.Identity && cipher.identity) {
-    const [firstName, lastName, email, phone, username] = await Promise.all([
-      decryptToString(cipher.identity.firstName, key),
-      decryptToString(cipher.identity.lastName, key),
-      decryptToString(cipher.identity.email, key),
-      decryptToString(cipher.identity.phone, key),
-      decryptToString(cipher.identity.username, key),
+    const id = cipher.identity;
+    const [
+      title,
+      firstName,
+      middleName,
+      lastName,
+      company,
+      ssn,
+      passportNumber,
+      licenseNumber,
+      email,
+      phone,
+      username,
+      address1,
+      city,
+      state,
+      postalCode,
+      country,
+    ] = await Promise.all([
+      decryptToString(id.title, key),
+      decryptToString(id.firstName, key),
+      decryptToString(id.middleName, key),
+      decryptToString(id.lastName, key),
+      decryptToString(id.company, key),
+      decryptToString(id.ssn, key),
+      decryptToString(id.passportNumber, key),
+      decryptToString(id.licenseNumber, key),
+      decryptToString(id.email, key),
+      decryptToString(id.phone, key),
+      decryptToString(id.username, key),
+      decryptToString(id.address1, key),
+      decryptToString(id.city, key),
+      decryptToString(id.state, key),
+      decryptToString(id.postalCode, key),
+      decryptToString(id.country, key),
     ]);
-    result.identity = { firstName, lastName, email, phone, username };
+    result.identity = {
+      title,
+      firstName,
+      middleName,
+      lastName,
+      company,
+      ssn,
+      passportNumber,
+      licenseNumber,
+      email,
+      phone,
+      username,
+      address1,
+      city,
+      state,
+      postalCode,
+      country,
+    };
+  } else if (cipher.type === CipherType.SshKey && cipher.sshKey) {
+    const [privateKey, publicKey, keyFingerprint] = await Promise.all([
+      decryptToString(cipher.sshKey.privateKey, key),
+      decryptToString(cipher.sshKey.publicKey, key),
+      decryptToString(cipher.sshKey.keyFingerprint, key),
+    ]);
+    result.sshKey = { privateKey, publicKey, keyFingerprint };
   }
 
   return result;
 }
 
+export async function decryptOrganizationKeys(
+  sync: EncryptedSyncResponse,
+  userKey: SymmetricKey,
+): Promise<Map<string, SymmetricKey>> {
+  const orgKeys = new Map<string, SymmetricKey>();
+  const encPrivateKey = sync.profile.privateKey;
+  const orgs = sync.profile.organizations ?? [];
+  if (!encPrivateKey || orgs.length === 0) return orgKeys;
+
+  try {
+    const pkcs8 = await decryptPrivateKey(encPrivateKey, userKey);
+    for (const org of orgs) {
+      if (!org.key) continue;
+      try {
+        const orgKey = await decryptOrganizationKey(org.key, pkcs8);
+        orgKeys.set(org.id, orgKey);
+      } catch {
+        // Skip orgs whose key cannot be decrypted
+      }
+    }
+  } catch {
+    // Private key decryption failed
+  }
+  return orgKeys;
+}
+
 export async function decryptSyncResponse(
   sync: EncryptedSyncResponse,
   key: SymmetricKey,
-): Promise<{ ciphers: DecryptedCipher[]; folders: DecryptedFolder[] }> {
+): Promise<{
+  ciphers: DecryptedCipher[];
+  folders: DecryptedFolder[];
+  collections: DecryptedCollection[];
+  organizations: DecryptedOrganization[];
+}> {
+  const orgKeys = await decryptOrganizationKeys(sync, key);
+
   const activeCiphers = (sync.ciphers ?? []).filter((c) => !c.deletedDate);
-  const [ciphers, folders] = await Promise.all([
-    Promise.all(activeCiphers.map((c) => decryptCipher(c, key))),
+  const [ciphers, folders, collections] = await Promise.all([
+    Promise.all(
+      activeCiphers.map(async (c) => {
+        const itemKey = c.organizationId ? orgKeys.get(c.organizationId) ?? key : key;
+        return decryptCipher(c, itemKey);
+      }),
+    ),
     Promise.all((sync.folders ?? []).map((f) => decryptFolder(f, key))),
+    Promise.all(
+      (sync.collections ?? []).map(async (col) => {
+        const colKey = orgKeys.get(col.organizationId) ?? key;
+        return {
+          id: col.id,
+          organizationId: col.organizationId,
+          name: (await decryptToString(col.name, colKey)) ?? 'Collection',
+        };
+      }),
+    ),
   ]);
-  return { ciphers, folders };
+
+  const organizations: DecryptedOrganization[] = (sync.profile.organizations ?? []).map(
+    (o) => ({ id: o.id, name: o.name }),
+  );
+
+  return { ciphers, folders, collections, organizations };
 }
 
 export interface CipherInput {
@@ -130,6 +243,26 @@ export interface CipherInput {
     expMonth?: string | null;
     expYear?: string | null;
     code?: string | null;
+  };
+  identity?: {
+    title?: string | null;
+    firstName?: string | null;
+    middleName?: string | null;
+    lastName?: string | null;
+    company?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    username?: string | null;
+    address1?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postalCode?: string | null;
+    country?: string | null;
+  };
+  sshKey?: {
+    privateKey?: string | null;
+    publicKey?: string | null;
+    keyFingerprint?: string | null;
   };
 }
 
@@ -192,6 +325,59 @@ export async function encryptCipherPayload(
         encryptOpt(input.card?.code, key),
       ]);
     payload.card = { cardholderName, brand, number, expMonth, expYear, code };
+  } else if (input.type === CipherType.Identity) {
+    const id = input.identity;
+    const [
+      title,
+      firstName,
+      middleName,
+      lastName,
+      company,
+      email,
+      phone,
+      username,
+      address1,
+      city,
+      state,
+      postalCode,
+      country,
+    ] = await Promise.all([
+      encryptOpt(id?.title, key),
+      encryptOpt(id?.firstName, key),
+      encryptOpt(id?.middleName, key),
+      encryptOpt(id?.lastName, key),
+      encryptOpt(id?.company, key),
+      encryptOpt(id?.email, key),
+      encryptOpt(id?.phone, key),
+      encryptOpt(id?.username, key),
+      encryptOpt(id?.address1, key),
+      encryptOpt(id?.city, key),
+      encryptOpt(id?.state, key),
+      encryptOpt(id?.postalCode, key),
+      encryptOpt(id?.country, key),
+    ]);
+    payload.identity = {
+      title,
+      firstName,
+      middleName,
+      lastName,
+      company,
+      email,
+      phone,
+      username,
+      address1,
+      city,
+      state,
+      postalCode,
+      country,
+    };
+  } else if (input.type === CipherType.SshKey) {
+    const [privateKey, publicKey, keyFingerprint] = await Promise.all([
+      input.sshKey?.privateKey ? encryptString(input.sshKey.privateKey, key) : Promise.resolve(null),
+      encryptOpt(input.sshKey?.publicKey, key),
+      encryptOpt(input.sshKey?.keyFingerprint, key),
+    ]);
+    payload.sshKey = { privateKey, publicKey, keyFingerprint };
   }
 
   return payload;

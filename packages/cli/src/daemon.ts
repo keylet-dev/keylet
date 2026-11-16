@@ -4,16 +4,21 @@ import {
   base64ToBytes,
   type CipherInput,
   createCipher,
+  createFolder,
   type DecryptedCipher,
   type DecryptedFolder,
   decryptProtectedSymmetricKey,
   decryptSyncResponse,
+  deleteCipher,
+  deleteFolder,
   deriveMasterKey,
   deriveMasterPasswordHash,
   encryptCipherPayload,
+  encryptString,
   type EncryptedSyncResponse,
   loginWithPassword,
   refreshAccessToken,
+  softDeleteCipher,
   stretchKey,
   type SymmetricKey,
   symmetricKeyFromBytes,
@@ -23,11 +28,13 @@ import {
   type CliAccount,
   ensureConfigDir,
   getSocketPath,
+  getSshSocketPath,
   readAccount,
   readSnapshot,
   writeAccount,
   writeSnapshot,
 } from './config.js';
+import { KeyletSshAgent } from './sshAgent.js';
 
 export function startDaemon(): void {
   const dir = ensureConfigDir();
@@ -42,8 +49,10 @@ export function startDaemon(): void {
   let memCiphers: DecryptedCipher[] = [];
   let memFolders: DecryptedFolder[] = [];
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  const sshAgent = new KeyletSshAgent(getSshSocketPath(dir));
 
   function wipeAndExit() {
+    sshAgent.stop();
     if (memSymKey) {
       memSymKey.raw.fill(0);
       memSymKey.encKey.fill(0);
@@ -92,6 +101,7 @@ export function startDaemon(): void {
     const decrypted = await decryptSyncResponse(syncRes, memSymKey);
     memCiphers = decrypted.ciphers;
     memFolders = decrypted.folders;
+    sshAgent.updateKeys(memCiphers);
     account.lastSyncAt = Date.now();
     writeAccount(account, dir);
     writeSnapshot(syncRes, dir);
@@ -221,6 +231,66 @@ export function startDaemon(): void {
         const account = readAccount(dir);
         if (account) resetIdleTimer(account.autoLockMinutes);
         reply(200, { ok: true, ciphers: memCiphers, folders: memFolders });
+        return;
+      }
+
+      if (req.method === 'POST' && url === '/ciphers/create') {
+        const account = readAccount(dir);
+        if (!account || !memSymKey || !memAccessToken) throw new Error('Vault is locked');
+        const payload = await encryptCipherPayload(body.cipher as CipherInput, memSymKey);
+        await createCipher(account.serverUrl, memAccessToken, payload);
+        await performSync(account);
+        resetIdleTimer(account.autoLockMinutes);
+        reply(200, { ok: true, cipherCount: memCiphers.length });
+        return;
+      }
+
+      if (req.method === 'POST' && url === '/ciphers/delete') {
+        const account = readAccount(dir);
+        if (!account || !memSymKey || !memAccessToken) throw new Error('Vault is locked');
+        const cipherId = String(body.cipherId ?? '');
+        if (body.permanent) {
+          await deleteCipher(account.serverUrl, memAccessToken, cipherId);
+        } else {
+          await softDeleteCipher(account.serverUrl, memAccessToken, cipherId);
+        }
+        await performSync(account);
+        resetIdleTimer(account.autoLockMinutes);
+        reply(200, { ok: true, cipherCount: memCiphers.length });
+        return;
+      }
+
+      if (req.method === 'POST' && url === '/folders/create') {
+        const account = readAccount(dir);
+        if (!account || !memSymKey || !memAccessToken) throw new Error('Vault is locked');
+        const encName = await encryptString(String(body.name ?? ''), memSymKey);
+        await createFolder(account.serverUrl, memAccessToken, encName);
+        await performSync(account);
+        resetIdleTimer(account.autoLockMinutes);
+        reply(200, { ok: true, folders: memFolders });
+        return;
+      }
+
+      if (req.method === 'POST' && url === '/folders/delete') {
+        const account = readAccount(dir);
+        if (!account || !memSymKey || !memAccessToken) throw new Error('Vault is locked');
+        await deleteFolder(account.serverUrl, memAccessToken, String(body.folderId ?? ''));
+        await performSync(account);
+        resetIdleTimer(account.autoLockMinutes);
+        reply(200, { ok: true, folders: memFolders });
+        return;
+      }
+
+      if (req.method === 'POST' && url === '/ssh-agent/start') {
+        const account = readAccount(dir);
+        if (!account || !memSymKey) throw new Error('Vault is locked');
+        const keyCount = await sshAgent.start(memCiphers);
+        resetIdleTimer(account.autoLockMinutes);
+        reply(200, {
+          ok: true,
+          socketPath: getSshSocketPath(dir),
+          keyCount,
+        });
         return;
       }
 

@@ -338,6 +338,62 @@ export function CipherDetail({
           </div>
         )}
 
+        {cipher.type === CipherType.SshKey && cipher.sshKey && (
+          <div className="detail-card">
+            {cipher.sshKey.keyFingerprint && (
+              <div className="detail-row">
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div className="detail-row-label">Fingerprint</div>
+                  <div className="detail-row-val mono" style={{ fontSize: 11.5 }}>
+                    {cipher.sshKey.keyFingerprint}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => onCopy('Fingerprint', cipher.sshKey!.keyFingerprint!)}
+                >
+                  <Copy size={14} />
+                </button>
+              </div>
+            )}
+            {cipher.sshKey.publicKey && (
+              <div className="detail-row">
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div className="detail-row-label">Public Key</div>
+                  <div className="detail-row-val mono" style={{ fontSize: 11 }}>
+                    {cipher.sshKey.publicKey}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => onCopy('Public Key', cipher.sshKey!.publicKey!)}
+                >
+                  <Copy size={14} />
+                </button>
+              </div>
+            )}
+            {cipher.sshKey.privateKey && (
+              <div className="detail-row">
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div className="detail-row-label">Private Key</div>
+                  <div className="detail-row-val mono" style={{ fontSize: 11 }}>
+                    ••••••••••••••••••••
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => onCopy('Private Key', cipher.sshKey!.privateKey!, true)}
+                >
+                  <Copy size={14} />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {cipher.fields.length > 0 && (
           <div className="detail-card">
             {cipher.fields.map((f, idx) => (

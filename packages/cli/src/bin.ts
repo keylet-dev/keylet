@@ -6,12 +6,15 @@ import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import {
   bytesToBase64,
+  type CipherInput,
   CipherType,
   type DecryptedCipher,
+  type DecryptedFolder,
   decryptProtectedSymmetricKey,
   DEFAULT_PASSWORD_OPTIONS,
   deriveMasterKey,
   deriveMasterPasswordHash,
+  generateEd25519SshKeyPair,
   generatePassword,
   generateTotp,
   loginWithPassword,
@@ -47,9 +50,13 @@ Usage:
   keylet logout
   keylet status
   keylet sync
-  keylet list [--type login|note|card] [--json] [query]
-  keylet get <query> [--field password|username|totp|notes|all] [--json]
+  keylet list [--type login|note|card|ssh] [--json] [query]
+  keylet get <query> [--field password|username|totp|public|private|notes|all] [--json]
   keylet totp <query>
+  keylet add --name <name> [--type login|note|ssh] [--username <u>] [--password <p>] [--uri <url>] [--totp <secret>] [--generate-ssh]
+  keylet rm <query> [--permanent]
+  keylet folder <list|add|rm> [nameOrId]
+  keylet ssh-agent
   keylet import <file.json|file.csv>
   keylet generate [--length 20] [--no-symbols] [--no-numbers] [--avoid-ambiguous]
   keylet run [--from <item>] [--env-file <file>] -- <command...>
@@ -278,8 +285,9 @@ async function cmdList(args: string[]): Promise<void> {
     if (typeFilter === 'login' && c.type !== CipherType.Login) return false;
     if (typeFilter === 'note' && c.type !== CipherType.SecureNote) return false;
     if (typeFilter === 'card' && c.type !== CipherType.Card) return false;
+    if (typeFilter === 'ssh' && c.type !== CipherType.SshKey) return false;
     if (!query) return true;
-    const hay = `${c.name} ${c.login?.username ?? ''}`.toLowerCase();
+    const hay = `${c.name} ${c.login?.username ?? ''} ${c.sshKey?.keyFingerprint ?? ''}`.toLowerCase();
     return hay.includes(query);
   });
 
@@ -296,8 +304,14 @@ async function cmdList(args: string[]): Promise<void> {
           ? 'note'
           : c.type === CipherType.Card
             ? 'card'
-            : 'id';
-    const sub = c.login?.username ? ` (${c.login.username})` : '';
+            : c.type === CipherType.SshKey
+              ? 'ssh'
+              : 'id';
+    const sub = c.login?.username
+      ? ` (${c.login.username})`
+      : c.sshKey?.keyFingerprint
+        ? ` (${c.sshKey.keyFingerprint})`
+        : '';
     console.log(`[${kind}] ${c.name}${sub}`);
   }
 }
@@ -347,6 +361,116 @@ function cmdGenerate(args: string[]): void {
     excludeAmbiguous: hasFlag(args, '--avoid-ambiguous'),
   });
   console.log(password);
+}
+
+async function cmdAdd(args: string[]): Promise<void> {
+  if (!(await isDaemonRunning())) {
+    throw new Error('Vault is locked. Run `keylet unlock` first.');
+  }
+  const name = getFlag(args, '--name') || (await promptLine('Item Name: '));
+  const rawType = (getFlag(args, '--type') ?? 'login').toLowerCase();
+
+  let cipher: CipherInput;
+  if (rawType === 'ssh') {
+    const sshKey = hasFlag(args, '--generate-ssh')
+      ? await generateEd25519SshKeyPair(name)
+      : {
+          privateKey: getFlag(args, '--private-key') ?? '',
+          publicKey: getFlag(args, '--public-key') ?? '',
+          keyFingerprint: getFlag(args, '--fingerprint') ?? null,
+        };
+    cipher = {
+      type: CipherType.SshKey,
+      name,
+      notes: getFlag(args, '--notes') ?? null,
+      sshKey,
+    };
+  } else if (rawType === 'note') {
+    cipher = {
+      type: CipherType.SecureNote,
+      name,
+      notes: getFlag(args, '--notes') ?? (await promptLine('Notes: ')),
+    };
+  } else {
+    const uri = getFlag(args, '--uri');
+    cipher = {
+      type: CipherType.Login,
+      name,
+      notes: getFlag(args, '--notes') ?? null,
+      login: {
+        username: getFlag(args, '--username') ?? null,
+        password: getFlag(args, '--password') ?? null,
+        totp: getFlag(args, '--totp') ?? null,
+        uris: uri ? [{ uri, match: null }] : [],
+      },
+    };
+  }
+
+  const res = await ipcRequest<{ cipherCount: number }>('POST', '/ciphers/create', {
+    cipher,
+  });
+  console.log(`Added "${name}". Total items: ${res.cipherCount}.`);
+}
+
+async function cmdRm(args: string[]): Promise<void> {
+  const ciphers = await getUnlockedItems();
+  const permanent = hasFlag(args, '--permanent');
+  const query = args.filter((a) => !a.startsWith('--')).join(' ').trim();
+  if (!query) throw new Error('Usage: keylet rm <query> [--permanent]');
+  const item = findCipherByQuery(ciphers, query);
+  const res = await ipcRequest<{ cipherCount: number }>('POST', '/ciphers/delete', {
+    cipherId: item.id,
+    permanent,
+  });
+  console.log(`Deleted "${item.name}". Total items: ${res.cipherCount}.`);
+}
+
+async function cmdFolder(args: string[]): Promise<void> {
+  if (!(await isDaemonRunning())) {
+    throw new Error('Vault is locked. Run `keylet unlock` first.');
+  }
+  const sub = args[0] ?? 'list';
+  if (sub === 'list') {
+    const res = await ipcRequest<{ folders: DecryptedFolder[] }>('GET', '/items');
+    for (const f of res.folders) {
+      console.log(`${f.id}  ${f.name}`);
+    }
+    return;
+  }
+  if (sub === 'add') {
+    const name = args.slice(1).join(' ').trim();
+    if (!name) throw new Error('Usage: keylet folder add <name>');
+    const res = await ipcRequest<{ folders: DecryptedFolder[] }>('POST', '/folders/create', {
+      name,
+    });
+    console.log(`Created folder "${name}". Total folders: ${res.folders.length}.`);
+    return;
+  }
+  if (sub === 'rm') {
+    const query = args.slice(1).join(' ').trim();
+    if (!query) throw new Error('Usage: keylet folder rm <nameOrId>');
+    const items = await ipcRequest<{ folders: DecryptedFolder[] }>('GET', '/items');
+    const folder = items.folders.find(
+      (f) => f.id === query || f.name.toLowerCase() === query.toLowerCase(),
+    );
+    if (!folder) throw new Error(`Folder not found: ${query}`);
+    await ipcRequest('POST', '/folders/delete', { folderId: folder.id });
+    console.log(`Deleted folder "${folder.name}".`);
+    return;
+  }
+  throw new Error(`Unknown folder subcommand: ${sub}`);
+}
+
+async function cmdSshAgent(): Promise<void> {
+  if (!(await isDaemonRunning())) {
+    throw new Error('Vault is locked. Run `keylet unlock` first.');
+  }
+  const res = await ipcRequest<{ socketPath: string; keyCount: number }>(
+    'POST',
+    '/ssh-agent/start',
+  );
+  console.log(`SSH_AUTH_SOCK=${res.socketPath}; export SSH_AUTH_SOCK;`);
+  console.error(`# Keylet SSH agent active with ${res.keyCount} key(s).`);
 }
 
 async function cmdImport(args: string[]): Promise<void> {
@@ -441,6 +565,18 @@ async function main(): Promise<void> {
       break;
     case 'totp':
       await cmdTotp(rest);
+      break;
+    case 'add':
+      await cmdAdd(rest);
+      break;
+    case 'rm':
+      await cmdRm(rest);
+      break;
+    case 'folder':
+      await cmdFolder(rest);
+      break;
+    case 'ssh-agent':
+      await cmdSshAgent();
       break;
     case 'import':
       await cmdImport(rest);

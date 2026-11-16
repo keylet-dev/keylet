@@ -6,6 +6,7 @@ export enum CipherType {
   SecureNote = 2,
   Card = 3,
   Identity = 4,
+  SshKey = 5,
 }
 
 export interface ServerPreset {
@@ -52,10 +53,38 @@ export interface EncryptedField {
   type: number;
 }
 
+export interface EncryptedIdentity {
+  title?: string | null;
+  firstName?: string | null;
+  middleName?: string | null;
+  lastName?: string | null;
+  company?: string | null;
+  ssn?: string | null;
+  passportNumber?: string | null;
+  licenseNumber?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  username?: string | null;
+  address1?: string | null;
+  address2?: string | null;
+  address3?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  country?: string | null;
+}
+
+export interface EncryptedSshKey {
+  privateKey?: string | null;
+  publicKey?: string | null;
+  keyFingerprint?: string | null;
+}
+
 export interface EncryptedCipher {
   id: string;
   organizationId?: string | null;
   folderId?: string | null;
+  collectionIds?: string[] | null;
   type: CipherType;
   name: string | null;
   notes?: string | null;
@@ -77,20 +106,28 @@ export interface EncryptedCipher {
     expYear?: string | null;
     code?: string | null;
   } | null;
-  identity?: {
-    firstName?: string | null;
-    lastName?: string | null;
-    email?: string | null;
-    phone?: string | null;
-    username?: string | null;
-  } | null;
+  identity?: EncryptedIdentity | null;
   secureNote?: {
     type: number;
   } | null;
+  sshKey?: EncryptedSshKey | null;
 }
 
 export interface EncryptedFolder {
   id: string;
+  name: string | null;
+}
+
+export interface EncryptedOrganization {
+  id: string;
+  name: string;
+  key: string;
+  enabled?: boolean;
+}
+
+export interface EncryptedCollection {
+  id: string;
+  organizationId: string;
   name: string | null;
 }
 
@@ -100,8 +137,11 @@ export interface EncryptedSyncResponse {
     email: string;
     name?: string | null;
     key: string;
+    privateKey?: string | null;
+    organizations?: EncryptedOrganization[];
   };
   folders?: EncryptedFolder[];
+  collections?: EncryptedCollection[];
   ciphers?: EncryptedCipher[];
 }
 
@@ -118,11 +158,14 @@ export interface DecryptedField {
 
 export interface DecryptedCipher {
   id: string;
+  organizationId?: string | null;
   folderId: string | null;
+  collectionIds?: string[];
   type: CipherType;
   name: string;
   notes: string | null;
   favorite: boolean;
+  deletedDate?: string | null;
   revisionDate?: string;
   fields: DecryptedField[];
   login?: {
@@ -140,15 +183,42 @@ export interface DecryptedCipher {
     code: string | null;
   };
   identity?: {
+    title: string | null;
     firstName: string | null;
+    middleName: string | null;
     lastName: string | null;
+    company: string | null;
+    ssn: string | null;
+    passportNumber: string | null;
+    licenseNumber: string | null;
     email: string | null;
     phone: string | null;
     username: string | null;
+    address1: string | null;
+    city: string | null;
+    state: string | null;
+    postalCode: string | null;
+    country: string | null;
+  };
+  sshKey?: {
+    privateKey: string | null;
+    publicKey: string | null;
+    keyFingerprint: string | null;
   };
 }
 
 export interface DecryptedFolder {
+  id: string;
+  name: string;
+}
+
+export interface DecryptedCollection {
+  id: string;
+  organizationId: string;
+  name: string;
+}
+
+export interface DecryptedOrganization {
   id: string;
   name: string;
 }
