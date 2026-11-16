@@ -36,9 +36,12 @@ jobs:
         run: |
           npm --workspace=keylet run build:firefox
           npm --workspace=keylet run zip
+          npm --workspace=keylet exec wxt zip -b firefox
 
       - name: Upload extension artifacts
         uses: actions/upload-artifact@v4
         with:
           name: keylet-browser-extension
           path: browser-extension/.output/*.zip
+          include-hidden-files: true
+          if-no-files-found: error
