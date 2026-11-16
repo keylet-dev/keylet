@@ -37,6 +37,7 @@ import {
   findCipherByQuery,
   resolveRunEnvironment,
 } from './run.js';
+import { renderTable, resolveOutputFormat, toYaml } from './format.js';
 import {
   installSkill,
   KEYLET_SKILL_MD,
@@ -82,7 +83,7 @@ Subcommands:
       console.log(`Usage: keylet item <subcommand>
 
 Subcommands:
-  list [--type login|note|card|ssh] [--json] [query]
+  list [--type login|note|card|ssh] [--format table|json|yaml] [--json] [query]
   get <query> [--field password|username|totp|public|private|notes|all] [--json]
   add --name <name> [--type login|note|ssh] [--username <u>] [--password <p>] [--uri <url>] [--totp <secret>] [--generate-ssh]
   rm <query> [--permanent]
@@ -92,7 +93,7 @@ Subcommands:
       console.log(`Usage: keylet folder <subcommand>
 
 Subcommands:
-  list
+  list [--format table|json|yaml] [--json]
   add <name>
   rm <nameOrId>`);
       break;
@@ -107,9 +108,9 @@ Subcommands:
       console.log(`Usage: keylet ssh <subcommand>
 
 Subcommands:
-  agent                         Start in-memory SSH agent & print SSH_AUTH_SOCK export
-  add --name <name> [--generate]  Add or generate an Ed25519 SSH key item
-  list [--json]                 List SSH key items in vault`);
+  agent                               Start in-memory SSH agent & print SSH_AUTH_SOCK export
+  add --name <name> [--generate]        Add or generate an Ed25519 SSH key item
+  list [--format table|json|yaml] [--json]  List SSH key items in vault`);
       break;
     case 'skills':
       console.log(`Usage: keylet skills <subcommand>
@@ -357,12 +358,32 @@ async function cmdImport(args: string[]): Promise<void> {
 }
 
 // --- Item commands ---
+function cipherTypeLabel(type: CipherType): string {
+  switch (type) {
+    case CipherType.Login:
+      return 'login';
+    case CipherType.SecureNote:
+      return 'note';
+    case CipherType.Card:
+      return 'card';
+    case CipherType.Identity:
+      return 'identity';
+    case CipherType.SshKey:
+      return 'ssh';
+    default:
+      return String(type);
+  }
+}
+
 async function cmdList(args: string[]): Promise<void> {
   const ciphers = await getUnlockedItems();
   const typeFilter = getFlag(args, '--type')?.toLowerCase();
-  const asJson = hasFlag(args, '--json');
+  const format = resolveOutputFormat(args, 'table');
   const positional = args.filter(
-    (a, i) => !a.startsWith('--') && args[i - 1] !== '--type',
+    (a, i) =>
+      !a.startsWith('--') &&
+      args[i - 1] !== '--type' &&
+      args[i - 1] !== '--format',
   );
   const query = positional.join(' ').trim().toLowerCase();
 
@@ -376,29 +397,38 @@ async function cmdList(args: string[]): Promise<void> {
     return hay.includes(query);
   });
 
-  if (asJson) {
+  if (format === 'json') {
     console.log(JSON.stringify(filtered, null, 2));
     return;
   }
-
-  for (const c of filtered) {
-    const kind =
-      c.type === CipherType.Login
-        ? 'login'
-        : c.type === CipherType.SecureNote
-          ? 'note'
-          : c.type === CipherType.Card
-            ? 'card'
-            : c.type === CipherType.SshKey
-              ? 'ssh'
-              : 'id';
-    const sub = c.login?.username
-      ? ` (${c.login.username})`
-      : c.sshKey?.keyFingerprint
-        ? ` (${c.sshKey.keyFingerprint})`
-        : '';
-    console.log(`[${kind}] ${c.name}${sub}`);
+  if (format === 'yaml') {
+    console.log(toYaml(filtered));
+    return;
   }
+
+  console.log(
+    renderTable(filtered, [
+      { header: 'ID', maxWidth: 10, value: (c) => c.id },
+      { header: 'TYPE', value: (c) => cipherTypeLabel(c.type) },
+      { header: 'NAME', maxWidth: 28, value: (c) => c.name },
+      {
+        header: 'USERNAME / DETAIL',
+        maxWidth: 28,
+        value: (c) =>
+          c.login?.username ??
+          c.sshKey?.keyFingerprint ??
+          (c.card?.number ? `•••• ${c.card.number.slice(-4)}` : c.identity?.email ?? ''),
+      },
+      {
+        header: 'URI / TOTP',
+        maxWidth: 32,
+        value: (c) =>
+          c.login?.uris[0]?.uri ??
+          (c.login?.totp ? '[totp]' : c.sshKey?.publicKey ?? ''),
+      },
+      { header: 'FAV', value: (c) => (c.favorite ? '*' : '') },
+    ]),
+  );
 }
 
 async function cmdGet(args: string[]): Promise<void> {
@@ -508,10 +538,23 @@ async function cmdFolder(args: string[]): Promise<void> {
   }
   const sub = args[0] ?? 'list';
   if (sub === 'list') {
+    const rest = args.slice(1);
+    const format = resolveOutputFormat(rest, 'table');
     const res = await ipcRequest<{ folders: DecryptedFolder[] }>('GET', '/items');
-    for (const f of res.folders) {
-      console.log(`${f.id}  ${f.name}`);
+    if (format === 'json') {
+      console.log(JSON.stringify(res.folders, null, 2));
+      return;
     }
+    if (format === 'yaml') {
+      console.log(toYaml(res.folders));
+      return;
+    }
+    console.log(
+      renderTable(res.folders, [
+        { header: 'ID', value: (f) => f.id },
+        { header: 'NAME', value: (f) => f.name },
+      ]),
+    );
     return;
   }
   if (sub === 'add') {

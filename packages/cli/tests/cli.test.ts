@@ -9,6 +9,7 @@ import {
   generateEd25519SshKeyPair,
 } from '@keylet/core';
 import { KeyletSshAgent, parseOpenSshEd25519 } from '../src/sshAgent.js';
+import { renderTable, resolveOutputFormat, toYaml } from '../src/format.js';
 import { installSkill } from '../src/skills.js';
 import {
   extractCipherField,
@@ -124,6 +125,23 @@ describe('@keylet/cli run & query helpers', () => {
     const rawSig = sigBlob.subarray(8 + algoLen, 8 + algoLen + rawSigLen);
     const pubKeyObj = crypto.createPublicKey(parsed!.privateKey);
     expect(crypto.verify(null, challenge, pubKeyObj, rawSig)).toBe(true);
+  });
+
+  it('renders aligned tables and YAML output', () => {
+    expect(resolveOutputFormat(['--format', 'yaml'])).toBe('yaml');
+    expect(resolveOutputFormat(['--json'])).toBe('json');
+    expect(resolveOutputFormat([])).toBe('table');
+
+    const table = renderTable(MOCK_CIPHERS, [
+      { header: 'ID', value: (c) => c.id },
+      { header: 'NAME', value: (c) => c.name },
+    ]);
+    expect(table).toContain('ID  NAME');
+    expect(table).toContain('1   Production Postgres');
+
+    const yaml = toYaml([{ id: '1', name: 'GitHub: Main' }]);
+    expect(yaml).toContain('- id: "1"');
+    expect(yaml).toContain('name: "GitHub: Main"');
   });
 
   it('installs Keylet SKILL.md to target directory', () => {
