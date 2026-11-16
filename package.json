@@ -1,0 +1,19 @@
+{
+  "name": "keylet-monorepo",
+  "private": true,
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "browser-extension"
+  ],
+  "scripts": {
+    "build:core": "npm --workspace=@keylet/core run build",
+    "build:ext": "npm --workspace=@keylet/core run build && npm --workspace=keylet run build",
+    "build:cli": "npm --workspace=@keylet/core run build && npm --workspace=@keylet/cli run build",
+    "build": "npm run build:core && npm --workspace=@keylet/cli run build && npm --workspace=keylet run build",
+    "typecheck": "npm --workspace=@keylet/core run typecheck && npm --workspace=@keylet/cli run typecheck && npm --workspace=keylet run typecheck",
+    "test": "npm --workspace=@keylet/core run test && npm --workspace=@keylet/cli run test"
+  }
+}

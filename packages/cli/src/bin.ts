@@ -1,0 +1,437 @@
+#!/usr/bin/env node
+import crypto from 'node:crypto';
+import { spawn } from 'node:child_process';
+import readline from 'node:readline';
+import { fileURLToPath } from 'node:url';
+import {
+  bytesToBase64,
+  CipherType,
+  type DecryptedCipher,
+  decryptProtectedSymmetricKey,
+  DEFAULT_PASSWORD_OPTIONS,
+  deriveMasterKey,
+  deriveMasterPasswordHash,
+  generatePassword,
+  generateTotp,
+  loginWithPassword,
+  normalizeServerUrl,
+  prelogin,
+  stretchKey,
+  TwoFactorRequiredError,
+} from '@keylet/core';
+import { ensureDaemon, ipcRequest, isDaemonRunning } from './client.js';
+import {
+  type CliAccount,
+  clearStoredAccount,
+  readAccount,
+  writeAccount,
+} from './config.js';
+import { startDaemon } from './daemon.js';
+import {
+  extractCipherField,
+  findCipherByQuery,
+  resolveRunEnvironment,
+} from './run.js';
+
+const BIN_PATH = fileURLToPath(import.meta.url);
+
+function printHelp(): void {
+  console.log(`keylet - Keyboard-first Bitwarden & Vaultwarden CLI
+
+Usage:
+  keylet login [--server <url>] [--email <email>] [--password-env <VAR>]
+  keylet unlock [--password-env <VAR>]
+  keylet lock
+  keylet logout
+  keylet status
+  keylet sync
+  keylet list [--type login|note|card] [--json] [query]
+  keylet get <query> [--field password|username|totp|notes|all] [--json]
+  keylet totp <query>
+  keylet generate [--length 20] [--no-symbols] [--no-numbers] [--avoid-ambiguous]
+  keylet run [--from <item>] [--env-file <file>] -- <command...>
+`);
+}
+
+async function promptLine(label: string): Promise<string> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stderr,
+  });
+  return new Promise((resolve) => {
+    rl.question(label, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
+async function promptPassword(label: string): Promise<string> {
+  if (!process.stdin.isTTY) {
+    return promptLine('');
+  }
+  return new Promise((resolve) => {
+    process.stderr.write(label);
+    const stdin = process.stdin;
+    const wasRaw = stdin.isRaw;
+    stdin.setRawMode(true);
+    stdin.resume();
+    let value = '';
+    const onData = (buf: Buffer) => {
+      const ch = buf.toString('utf8');
+      if (ch === '\r' || ch === '\n') {
+        stdin.setRawMode(Boolean(wasRaw));
+        stdin.pause();
+        stdin.removeListener('data', onData);
+        process.stderr.write('\n');
+        resolve(value);
+      } else if (ch === '\u0003') {
+        stdin.setRawMode(Boolean(wasRaw));
+        process.exit(130);
+      } else if (ch === '\u007f' || ch === '\b') {
+        value = value.slice(0, -1);
+      } else {
+        value += ch;
+      }
+    };
+    stdin.on('data', onData);
+  });
+}
+
+function getFlag(args: string[], name: string): string | undefined {
+  const idx = args.indexOf(name);
+  if (idx === -1 || idx + 1 >= args.length) return undefined;
+  return args[idx + 1];
+}
+
+function hasFlag(args: string[], name: string): boolean {
+  return args.includes(name);
+}
+
+async function getUnlockedItems(): Promise<DecryptedCipher[]> {
+  if (!(await isDaemonRunning())) {
+    throw new Error('Vault is locked. Run `keylet unlock` first.');
+  }
+  const res = await ipcRequest<{ ok: boolean; ciphers: DecryptedCipher[] }>(
+    'GET',
+    '/items',
+  );
+  return res.ciphers;
+}
+
+async function cmdLogin(args: string[]): Promise<void> {
+  const serverRaw =
+    getFlag(args, '--server') ||
+    (await promptLine('Server URL (default https://vault.bitwarden.com): ')) ||
+    'https://vault.bitwarden.com';
+  const serverUrl = normalizeServerUrl(serverRaw);
+  const email = (
+    getFlag(args, '--email') || (await promptLine('Email: '))
+  )
+    .trim()
+    .toLowerCase();
+
+  const pwEnvVar = getFlag(args, '--password-env');
+  const password =
+    (pwEnvVar && process.env[pwEnvVar]) ||
+    (await promptPassword('Master Password: '));
+
+  const existing = readAccount();
+  const deviceId = existing?.deviceId ?? crypto.randomUUID();
+  const kdfConfig = await prelogin(serverUrl, email);
+  const masterKey = await deriveMasterKey(password, email, kdfConfig);
+  const passwordHash = await deriveMasterPasswordHash(masterKey, password);
+
+  let twoFactorToken = getFlag(args, '--2fa');
+  let tokenRes;
+  try {
+    tokenRes = await loginWithPassword(
+      serverUrl,
+      email,
+      passwordHash,
+      deviceId,
+      twoFactorToken ? { provider: 0, token: twoFactorToken, remember: true } : undefined,
+    );
+  } catch (err) {
+    if (err instanceof TwoFactorRequiredError) {
+      twoFactorToken = await promptLine('2FA Code: ');
+      tokenRes = await loginWithPassword(
+        serverUrl,
+        email,
+        passwordHash,
+        deviceId,
+        {
+          provider: err.providers[0] ?? 0,
+          token: twoFactorToken,
+          remember: true,
+        },
+      );
+    } else {
+      throw err;
+    }
+  }
+
+  const stretched = await stretchKey(masterKey);
+  const symKey = await decryptProtectedSymmetricKey(tokenRes.Key, stretched);
+
+  const account: CliAccount = {
+    serverUrl,
+    email,
+    deviceId,
+    kdfConfig,
+    protectedKey: tokenRes.Key,
+    lastSyncAt: null,
+    autoLockMinutes: existing?.autoLockMinutes ?? 15,
+  };
+  writeAccount(account);
+
+  await ensureDaemon(BIN_PATH);
+  const res = await ipcRequest<{ ok: boolean; cipherCount: number }>(
+    'POST',
+    '/session',
+    {
+      symKeyB64: bytesToBase64(symKey.raw),
+      accessToken: tokenRes.access_token,
+      refreshToken: tokenRes.refresh_token ?? null,
+    },
+  );
+  console.log(`Logged in to ${serverUrl} (${res.cipherCount} items synced).`);
+}
+
+async function cmdUnlock(args: string[]): Promise<void> {
+  const account = readAccount();
+  if (!account) {
+    throw new Error('No account configured. Run `keylet login` first.');
+  }
+  const pwEnvVar = getFlag(args, '--password-env');
+  const masterPassword =
+    (pwEnvVar && process.env[pwEnvVar]) ||
+    (await promptPassword(`Master Password for ${account.email}: `));
+
+  await ensureDaemon(BIN_PATH);
+  const res = await ipcRequest<{ ok: boolean; cipherCount: number }>(
+    'POST',
+    '/unlock',
+    { masterPassword },
+  );
+  console.log(`Vault unlocked (${res.cipherCount} items).`);
+}
+
+async function cmdLock(): Promise<void> {
+  if (await isDaemonRunning()) {
+    await ipcRequest('POST', '/lock');
+  }
+  console.log('Vault locked.');
+}
+
+async function cmdLogout(): Promise<void> {
+  if (await isDaemonRunning()) {
+    await ipcRequest('POST', '/lock').catch(() => {});
+  }
+  clearStoredAccount();
+  console.log('Logged out and local vault data cleared.');
+}
+
+async function cmdStatus(): Promise<void> {
+  const account = readAccount();
+  if (!account) {
+    console.log('Status: logged_out');
+    return;
+  }
+  const running = await isDaemonRunning();
+  if (!running) {
+    console.log(`Status: locked\nServer: ${account.serverUrl}\nEmail:  ${account.email}`);
+    return;
+  }
+  const st = await ipcRequest<{
+    unlocked: boolean;
+    cipherCount: number;
+  }>('GET', '/status');
+  console.log(
+    `Status: ${st.unlocked ? 'unlocked' : 'locked'}\nServer: ${account.serverUrl}\nEmail:  ${account.email}\nItems:  ${st.cipherCount}`,
+  );
+}
+
+async function cmdSync(): Promise<void> {
+  if (!(await isDaemonRunning())) {
+    throw new Error('Vault is locked. Run `keylet unlock` first.');
+  }
+  const res = await ipcRequest<{ cipherCount: number }>('POST', '/sync');
+  console.log(`Synced ${res.cipherCount} items.`);
+}
+
+async function cmdList(args: string[]): Promise<void> {
+  const ciphers = await getUnlockedItems();
+  const typeFilter = getFlag(args, '--type')?.toLowerCase();
+  const asJson = hasFlag(args, '--json');
+  const positional = args.filter(
+    (a, i) =>
+      !a.startsWith('--') &&
+      args[i - 1] !== '--type',
+  );
+  const query = positional.join(' ').trim().toLowerCase();
+
+  const filtered = ciphers.filter((c) => {
+    if (typeFilter === 'login' && c.type !== CipherType.Login) return false;
+    if (typeFilter === 'note' && c.type !== CipherType.SecureNote) return false;
+    if (typeFilter === 'card' && c.type !== CipherType.Card) return false;
+    if (!query) return true;
+    const hay = `${c.name} ${c.login?.username ?? ''}`.toLowerCase();
+    return hay.includes(query);
+  });
+
+  if (asJson) {
+    console.log(JSON.stringify(filtered, null, 2));
+    return;
+  }
+
+  for (const c of filtered) {
+    const kind =
+      c.type === CipherType.Login
+        ? 'login'
+        : c.type === CipherType.SecureNote
+          ? 'note'
+          : c.type === CipherType.Card
+            ? 'card'
+            : 'id';
+    const sub = c.login?.username ? ` (${c.login.username})` : '';
+    console.log(`[${kind}] ${c.name}${sub}`);
+  }
+}
+
+async function cmdGet(args: string[]): Promise<void> {
+  const ciphers = await getUnlockedItems();
+  const field = getFlag(args, '--field') ?? 'password';
+  const asJson = hasFlag(args, '--json');
+  const query = args
+    .filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--field')
+    .join(' ')
+    .trim();
+  if (!query) throw new Error('Usage: keylet get <query> [--field <name>]');
+
+  const item = findCipherByQuery(ciphers, query);
+  if (asJson || field === 'all') {
+    console.log(JSON.stringify(item, null, 2));
+    return;
+  }
+  const value = await extractCipherField(item, field);
+  process.stdout.write(value + (process.stdout.isTTY ? '\n' : ''));
+}
+
+async function cmdTotp(args: string[]): Promise<void> {
+  const ciphers = await getUnlockedItems();
+  const query = args.join(' ').trim();
+  if (!query) throw new Error('Usage: keylet totp <query>');
+  const item = findCipherByQuery(ciphers, query);
+  if (!item.login?.totp) {
+    throw new Error(`Item "${item.name}" has no TOTP secret`);
+  }
+  const { code, remainingSeconds } = await generateTotp(item.login.totp);
+  console.log(
+    process.stdout.isTTY ? `${code} (${remainingSeconds}s remaining)` : code,
+  );
+}
+
+function cmdGenerate(args: string[]): void {
+  const lenRaw = getFlag(args, '--length');
+  const length = lenRaw ? Number(lenRaw) : DEFAULT_PASSWORD_OPTIONS.length;
+  const { password } = generatePassword({
+    length,
+    uppercase: !hasFlag(args, '--no-uppercase'),
+    lowercase: !hasFlag(args, '--no-lowercase'),
+    numbers: !hasFlag(args, '--no-numbers'),
+    symbols: !hasFlag(args, '--no-symbols'),
+    excludeAmbiguous: hasFlag(args, '--avoid-ambiguous'),
+  });
+  console.log(password);
+}
+
+async function cmdRun(args: string[]): Promise<void> {
+  const sepIdx = args.indexOf('--');
+  const flagArgs = sepIdx === -1 ? args : args.slice(0, sepIdx);
+  const cmdArgs =
+    sepIdx === -1
+      ? args.filter(
+          (a, i) =>
+            !a.startsWith('--') &&
+            args[i - 1] !== '--from' &&
+            args[i - 1] !== '--env-file',
+        )
+      : args.slice(sepIdx + 1);
+
+  if (cmdArgs.length === 0) {
+    throw new Error('Usage: keylet run [--from <item>] [--env-file <file>] -- <command...>');
+  }
+
+  const ciphers = await getUnlockedItems();
+  const env = await resolveRunEnvironment(ciphers, process.env, {
+    fromItem: getFlag(flagArgs, '--from'),
+    envFile: getFlag(flagArgs, '--env-file'),
+  });
+
+  const [cmd, ...rest] = cmdArgs;
+  const child = spawn(cmd!, rest, { stdio: 'inherit', env });
+  child.on('exit', (code, signal) => {
+    if (signal) process.kill(process.pid, signal);
+    process.exit(code ?? 0);
+  });
+}
+
+async function main(): Promise<void> {
+  const [, , subcommand, ...rest] = process.argv;
+  if (subcommand === '__daemon') {
+    startDaemon();
+    return;
+  }
+
+  switch (subcommand) {
+    case undefined:
+    case 'help':
+    case '--help':
+    case '-h':
+      printHelp();
+      break;
+    case 'login':
+      await cmdLogin(rest);
+      break;
+    case 'unlock':
+      await cmdUnlock(rest);
+      break;
+    case 'lock':
+      await cmdLock();
+      break;
+    case 'logout':
+      await cmdLogout();
+      break;
+    case 'status':
+      await cmdStatus();
+      break;
+    case 'sync':
+      await cmdSync();
+      break;
+    case 'list':
+      await cmdList(rest);
+      break;
+    case 'get':
+      await cmdGet(rest);
+      break;
+    case 'totp':
+      await cmdTotp(rest);
+      break;
+    case 'generate':
+      cmdGenerate(rest);
+      break;
+    case 'run':
+      await cmdRun(rest);
+      break;
+    default:
+      console.error(`Unknown command: ${subcommand}`);
+      printHelp();
+      process.exitCode = 1;
+  }
+}
+
+main().catch((err) => {
+  console.error('Error:', err instanceof Error ? err.message : String(err));
+  process.exit(1);
+});
