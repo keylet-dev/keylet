@@ -338,6 +338,12 @@ export function CipherDetail({
           </div>
         )}
 
+        {cipher.type === CipherType.SshKey && !cipher.sshKey && (
+          <div className="error-banner" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}>
+            No SSH key payload returned by the server. Your Vaultwarden/Nodewarden server may not support Bitwarden SSH Key (type 5) fields yet.
+          </div>
+        )}
+
         {cipher.type === CipherType.SshKey && cipher.sshKey && (
           <div className="detail-card">
             {cipher.sshKey.keyFingerprint && (

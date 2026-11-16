@@ -97,7 +97,11 @@ function parse1PasswordJson(raw: string): ImportParseResult {
                   sshKey?: {
                     privateKey?: string;
                     publicKey?: string;
-                    metadata?: { fingerprint?: string };
+                    metadata?: {
+                      privateKey?: string;
+                      publicKey?: string;
+                      fingerprint?: string;
+                    };
                   };
                 };
               }>;
@@ -141,8 +145,14 @@ function parse1PasswordJson(raw: string): ImportParseResult {
           for (const sec of item.details?.sections ?? []) {
             for (const f of sec.fields ?? []) {
               if (f.value?.sshKey) {
-                priv = f.value.sshKey.privateKey ?? priv;
-                pub = f.value.sshKey.publicKey ?? pub;
+                priv =
+                  f.value.sshKey.privateKey ??
+                  f.value.sshKey.metadata?.privateKey ??
+                  priv;
+                pub =
+                  f.value.sshKey.publicKey ??
+                  f.value.sshKey.metadata?.publicKey ??
+                  pub;
                 fp = f.value.sshKey.metadata?.fingerprint ?? fp;
               } else if (f.id === 'private_key') {
                 priv = f.value?.concealed ?? f.value?.string ?? priv;

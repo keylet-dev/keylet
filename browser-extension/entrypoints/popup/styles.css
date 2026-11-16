@@ -401,6 +401,8 @@ body {
   justify-content: center;
   gap: 6px;
   height: 36px;
+  min-height: 36px;
+  flex-shrink: 0;
   padding: 0 14px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
@@ -411,6 +413,16 @@ body {
   font-weight: 500;
   cursor: pointer;
   transition: background 120ms ease, opacity 120ms ease;
+}
+
+.btn-accent-soft {
+  background: var(--accent-soft);
+  border-color: rgba(59, 130, 246, 0.35);
+  color: #93c5fd;
+}
+
+.btn-accent-soft:hover {
+  background: rgba(59, 130, 246, 0.25);
 }
 
 .btn:hover {

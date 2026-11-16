@@ -369,7 +369,7 @@ export function CipherForm({
           <>
             <Button
               type="button"
-              className="btn"
+              className="btn btn-accent-soft"
               onClick={async () => {
                 const kp = await generateEd25519SshKeyPair(name.trim() || 'keylet');
                 setSshPrivate(kp.privateKey);
