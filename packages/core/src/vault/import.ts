@@ -1,4 +1,5 @@
 import { CipherType } from '../api/types.js';
+import { bytesToUtf8 } from '../crypto/encoding.js';
 import type { CipherInput } from './decrypt.js';
 
 export type ImportFormat =
@@ -6,7 +7,8 @@ export type ImportFormat =
   | 'bitwarden-csv'
   | 'chrome-csv'
   | '1password-csv'
-  | '1password-json';
+  | '1password-json'
+  | '1password-1pux';
 
 export interface ImportParseResult {
   format: ImportFormat;
@@ -78,6 +80,7 @@ function parse1PasswordJson(raw: string): ImportParseResult {
           };
           details?: {
             notesPlain?: string;
+            password?: string;
             loginFields?: Array<{
               designation?: string;
               value?: string;
@@ -85,10 +88,17 @@ function parse1PasswordJson(raw: string): ImportParseResult {
             sections?: Array<{
               fields?: Array<{
                 title?: string;
+                id?: string;
                 value?: {
                   totp?: string;
                   string?: string;
                   concealed?: string;
+                  creditCardNumber?: string;
+                  sshKey?: {
+                    privateKey?: string;
+                    publicKey?: string;
+                    metadata?: { fingerprint?: string };
+                  };
                 };
               }>;
             }>;
@@ -123,11 +133,43 @@ function parse1PasswordJson(raw: string): ImportParseResult {
           continue;
         }
 
+        // 114 = SSH Key in 1PUX
+        if (item.categoryUuid === '114') {
+          let priv: string | null = null;
+          let pub: string | null = null;
+          let fp: string | null = null;
+          for (const sec of item.details?.sections ?? []) {
+            for (const f of sec.fields ?? []) {
+              if (f.value?.sshKey) {
+                priv = f.value.sshKey.privateKey ?? priv;
+                pub = f.value.sshKey.publicKey ?? pub;
+                fp = f.value.sshKey.metadata?.fingerprint ?? fp;
+              } else if (f.id === 'private_key') {
+                priv = f.value?.concealed ?? f.value?.string ?? priv;
+              } else if (f.id === 'public_key') {
+                pub = f.value?.string ?? pub;
+              }
+            }
+          }
+          if (priv || pub) {
+            items.push({
+              type: CipherType.SshKey,
+              name,
+              notes,
+              favorite,
+              sshKey: { privateKey: priv, publicKey: pub, keyFingerprint: fp },
+            });
+            continue;
+          }
+        }
+
         const loginFields = item.details?.loginFields ?? [];
         const username =
           loginFields.find((f) => f.designation === 'username')?.value ?? null;
         const password =
-          loginFields.find((f) => f.designation === 'password')?.value ?? null;
+          loginFields.find((f) => f.designation === 'password')?.value ??
+          item.details?.password ??
+          null;
 
         let totp: string | null = null;
         for (const sec of item.details?.sections ?? []) {
@@ -390,7 +432,7 @@ function parseCsvRows(rows: string[][]): ImportParseResult {
   return { format: 'chrome-csv', items, skipped };
 }
 
-/** Auto-detect and parse Bitwarden JSON, Bitwarden CSV, or Chrome/Edge CSV. */
+/** Auto-detect and parse Bitwarden JSON, Bitwarden CSV, 1Password CSV/JSON, or Chrome/Edge CSV. */
 export function parseImportFile(content: string): ImportParseResult {
   const trimmed = content.trim();
   if (!trimmed) {
@@ -400,4 +442,91 @@ export function parseImportFile(content: string): ImportParseResult {
     return parseBitwardenJson(trimmed);
   }
   return parseCsvRows(parseCsv(trimmed));
+}
+
+async function inflateDeflateRaw(compressed: Uint8Array): Promise<Uint8Array> {
+  const copy = new Uint8Array(compressed.length);
+  copy.set(compressed);
+  const stream = new Blob([copy.buffer])
+    .stream()
+    .pipeThrough(new DecompressionStream('deflate-raw'));
+  const ab = await new Response(stream).arrayBuffer();
+  return new Uint8Array(ab);
+}
+
+/** Minimal dependency-free ZIP extractor using Central Directory + Web DecompressionStream. */
+export async function extractFileFromZip(
+  zip: Uint8Array,
+  targetName: string,
+): Promise<Uint8Array> {
+  const view = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
+  // Find End of Central Directory (0x06054b50) scanning backwards from end
+  let eocdOffset = -1;
+  const minOffset = Math.max(0, zip.length - 65557);
+  for (let i = zip.length - 22; i >= minOffset; i--) {
+    if (view.getUint32(i, true) === 0x06054b50) {
+      eocdOffset = i;
+      break;
+    }
+  }
+  if (eocdOffset === -1) {
+    throw new Error('Invalid ZIP archive: EOCD not found');
+  }
+
+  const totalEntries = view.getUint16(eocdOffset + 10, true);
+  let cdOffset = view.getUint32(eocdOffset + 16, true);
+
+  for (let i = 0; i < totalEntries; i++) {
+    if (view.getUint32(cdOffset, true) !== 0x02014b50) {
+      throw new Error('Invalid ZIP central directory entry');
+    }
+    const method = view.getUint16(cdOffset + 10, true);
+    const compSize = view.getUint32(cdOffset + 20, true);
+    const nameLen = view.getUint16(cdOffset + 28, true);
+    const extraLen = view.getUint16(cdOffset + 30, true);
+    const commentLen = view.getUint16(cdOffset + 32, true);
+    const localHeaderOffset = view.getUint32(cdOffset + 42, true);
+
+    const fileName = bytesToUtf8(
+      zip.subarray(cdOffset + 46, cdOffset + 46 + nameLen),
+    );
+    cdOffset += 46 + nameLen + extraLen + commentLen;
+
+    if (fileName !== targetName) continue;
+
+    if (view.getUint32(localHeaderOffset, true) !== 0x04034b50) {
+      throw new Error('Invalid ZIP local file header');
+    }
+    const localNameLen = view.getUint16(localHeaderOffset + 26, true);
+    const localExtraLen = view.getUint16(localHeaderOffset + 28, true);
+    const dataStart = localHeaderOffset + 30 + localNameLen + localExtraLen;
+    const compressed = zip.subarray(dataStart, dataStart + compSize);
+
+    if (method === 0) return compressed.slice();
+    if (method === 8) return inflateDeflateRaw(compressed);
+    throw new Error(`Unsupported ZIP compression method: ${method}`);
+  }
+
+  throw new Error(`"${targetName}" not found inside .1pux archive`);
+}
+
+/**
+ * Parse raw import file bytes (supports binary `.1pux` ZIP archives as well as
+ * UTF-8 JSON and CSV exports).
+ */
+export async function parseImportBytes(
+  bytes: Uint8Array,
+): Promise<ImportParseResult> {
+  if (
+    bytes.length >= 4 &&
+    bytes[0] === 0x50 &&
+    bytes[1] === 0x4b &&
+    bytes[2] === 0x03 &&
+    bytes[3] === 0x04
+  ) {
+    const exportDataBytes = await extractFileFromZip(bytes, 'export.data');
+    const res = parse1PasswordJson(bytesToUtf8(exportDataBytes));
+    return { ...res, format: '1password-1pux' };
+  }
+  return parseImportFile(bytesToUtf8(bytes));
 }

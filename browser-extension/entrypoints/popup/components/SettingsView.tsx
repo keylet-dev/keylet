@@ -11,7 +11,7 @@ import {
   SegmentedControlItem,
 } from '@ui-sdk/react/segmented-control';
 import { ArrowLeft, Eye, EyeOff, KeyRound, Lock, LogOut, RefreshCw, Upload } from 'lucide-react';
-import { parseImportFile, type VaultStatus } from '@keylet/core';
+import { parseImportBytes, type VaultStatus } from '@keylet/core';
 import { sendRuntimeMessage } from '../ipc';
 
 interface SettingsViewProps {
@@ -113,8 +113,8 @@ export function SettingsView({
     setImportError(null);
     setImporting(true);
     try {
-      const content = await file.text();
-      const parsed = parseImportFile(content);
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const parsed = await parseImportBytes(bytes);
       if (parsed.items.length === 0) {
         throw new Error('No importable items found in file');
       }
@@ -259,7 +259,7 @@ export function SettingsView({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".json,.csv"
+          accept=".json,.csv,.1pux"
           style={{ display: 'none' }}
           onChange={(e) => void handleImportFile(e)}
         />

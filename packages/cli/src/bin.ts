@@ -19,7 +19,7 @@ import {
   generateTotp,
   loginWithPassword,
   normalizeServerUrl,
-  parseImportFile,
+  parseImportBytes,
   prelogin,
   stretchKey,
   TwoFactorRequiredError,
@@ -323,12 +323,12 @@ async function cmdSync(): Promise<void> {
 
 async function cmdImport(args: string[]): Promise<void> {
   const filePath = args[0];
-  if (!filePath) throw new Error('Usage: keylet vault import <file.json|file.csv>');
+  if (!filePath) throw new Error('Usage: keylet vault import <file.1pux|file.json|file.csv>');
   if (!(await isDaemonRunning())) {
     throw new Error('Vault is locked. Run `keylet auth unlock` first.');
   }
-  const content = fs.readFileSync(filePath, 'utf8');
-  const parsed = parseImportFile(content);
+  const bytes = new Uint8Array(fs.readFileSync(filePath));
+  const parsed = await parseImportBytes(bytes);
   if (parsed.items.length === 0) {
     throw new Error('No importable items found');
   }
