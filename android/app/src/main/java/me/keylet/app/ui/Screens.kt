@@ -120,31 +120,23 @@ fun LoginScreen(
         else -> customUrl
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(KeyletColors.BgBase)
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Spacer(Modifier.height(16.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(KeyletColors.Accent.copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.Key, contentDescription = null, tint = KeyletColors.Accent)
+    KeyletGlassBackdrop {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Spacer(Modifier.height(16.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                KeyletLogo(size = 40.dp)
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text("Keylet", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = KeyletColors.TextPrimary)
+                    Text("Connect to Bitwarden or Vaultwarden", fontSize = 12.sp, color = KeyletColors.TextSecondary)
+                }
             }
-            Spacer(Modifier.width(12.dp))
-            Column {
-                Text("Keylet", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = KeyletColors.TextPrimary)
-                Text("Connect to Bitwarden or Vaultwarden", fontSize = 12.sp, color = KeyletColors.TextSecondary)
-            }
-        }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("us" to "bitwarden.com", "eu" to "bitwarden.eu", "custom" to "Self-hosted").forEach { (id, label) ->
@@ -241,6 +233,7 @@ fun LoginScreen(
                 Text("Sign in & Sync Vault")
             }
         }
+        }
     }
 }
 
@@ -257,25 +250,16 @@ fun LockScreen(
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(KeyletColors.BgBase)
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(
+    KeyletGlassBackdrop {
+        Column(
             modifier = Modifier
-                .size(52.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(KeyletColors.BgElevated)
-                .border(1.dp, KeyletColors.BorderSubtle, RoundedCornerShape(14.dp)),
-            contentAlignment = Alignment.Center
+                .fillMaxSize()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(Icons.Default.Lock, null, tint = KeyletColors.Accent)
-        }
-        Spacer(Modifier.height(12.dp))
+            KeyletLogo(size = 52.dp)
+            Spacer(Modifier.height(12.dp))
         Text("Vault Locked", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = KeyletColors.TextPrimary)
         Text(state.email.orEmpty(), fontSize = 13.sp, color = KeyletColors.TextSecondary)
         Text(state.serverUrl.orEmpty(), fontSize = 11.sp, color = KeyletColors.TextMuted)
@@ -341,6 +325,7 @@ fun LockScreen(
         ) {
             Text("Log Out")
         }
+        }
     }
 }
 
@@ -380,21 +365,28 @@ fun VaultScreen(
         }
     }
 
-    Scaffold(
-        containerColor = KeyletColors.BgBase,
-        topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = KeyletColors.BgBase),
-                title = { Text("Keylet", fontWeight = FontWeight.SemiBold, fontSize = 18.sp) },
-                actions = {
-                    IconButton(onClick = onCreateNew) { Icon(Icons.Default.Add, "New Item") }
-                    IconButton(onClick = onOpenGenerator) { Icon(Icons.Default.AutoAwesome, "Generator") }
-                    IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, "Settings") }
-                    IconButton(onClick = onLock) { Icon(Icons.Default.Lock, "Lock") }
-                }
-            )
-        }
-    ) { padding ->
+    KeyletGlassBackdrop {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            KeyletLogo(size = 24.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Keylet", fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = onCreateNew) { Icon(Icons.Default.Add, "New Item") }
+                        IconButton(onClick = onOpenGenerator) { Icon(Icons.Default.AutoAwesome, "Generator") }
+                        IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, "Settings") }
+                        IconButton(onClick = onLock) { Icon(Icons.Default.Lock, "Lock") }
+                    }
+                )
+            }
+        ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -451,21 +443,39 @@ fun VaultScreen(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(KeyletColors.BgElevated)
+                                .border(1.dp, KeyletColors.BorderSubtle, RoundedCornerShape(10.dp))
                                 .clickable { onSelectCipher(cipher) }
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = when (cipher.type) {
-                                    CipherType.LOGIN -> Icons.Default.Key
-                                    CipherType.CARD -> Icons.Default.CreditCard
-                                    CipherType.IDENTITY -> Icons.Default.Person
-                                    else -> Icons.Default.Description
-                                },
-                                contentDescription = null,
-                                tint = KeyletColors.TextSecondary,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0x0FFFFFFF))
+                                    .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(8.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (cipher.type == CipherType.LOGIN) {
+                                    Text(
+                                        text = (cipher.name.trim().firstOrNull() ?: 'K').uppercaseChar().toString(),
+                                        color = KeyletColors.AccentLight,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 13.sp
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = when (cipher.type) {
+                                            CipherType.CARD -> Icons.Default.CreditCard
+                                            CipherType.IDENTITY -> Icons.Default.Person
+                                            else -> Icons.Default.Description
+                                        },
+                                        contentDescription = null,
+                                        tint = KeyletColors.AccentLight,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
                             Spacer(Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -476,6 +486,19 @@ fun VaultScreen(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
+                                    if (!cipher.totp.isNullOrBlank()) {
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            "2FA",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = KeyletColors.Success,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(KeyletColors.Success.copy(alpha = 0.16f))
+                                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                                        )
+                                    }
                                     if (cipher.favorite) {
                                         Spacer(Modifier.width(4.dp))
                                         Icon(Icons.Default.Star, null, tint = KeyletColors.Warning, modifier = Modifier.size(12.dp))
@@ -497,6 +520,7 @@ fun VaultScreen(
                     }
                 }
             }
+        }
         }
     }
 }
@@ -527,11 +551,12 @@ fun CipherDetailScreen(
         }
     }
 
+    KeyletGlassBackdrop {
     Scaffold(
-        containerColor = KeyletColors.BgBase,
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = KeyletColors.BgBase),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
                 },
@@ -650,6 +675,7 @@ fun CipherDetailScreen(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -659,6 +685,7 @@ private fun DetailRow(label: String, value: String, onCopy: () -> Unit) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .background(KeyletColors.BgElevated)
+            .border(1.dp, KeyletColors.BorderSubtle, RoundedCornerShape(10.dp))
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -693,11 +720,12 @@ fun CipherFormScreen(
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
+    KeyletGlassBackdrop {
     Scaffold(
-        containerColor = KeyletColors.BgBase,
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = KeyletColors.BgBase),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                 navigationIcon = { IconButton(onClick = onCancel) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Cancel") } },
                 title = { Text(if (initial == null) "New Item" else "Edit Item") }
             )
@@ -800,6 +828,7 @@ fun CipherFormScreen(
             }
         }
     }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -822,11 +851,12 @@ fun GeneratorScreen(
         )
     }
 
+    KeyletGlassBackdrop {
     Scaffold(
-        containerColor = KeyletColors.BgBase,
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = KeyletColors.BgBase),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 title = { Text("Password Generator") }
             )
@@ -907,6 +937,7 @@ fun GeneratorScreen(
             }
         }
     }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -923,11 +954,12 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     var syncing by remember { mutableStateOf(false) }
 
+    KeyletGlassBackdrop {
     Scaffold(
-        containerColor = KeyletColors.BgBase,
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = KeyletColors.BgBase),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 title = { Text("Settings") }
             )
@@ -994,5 +1026,6 @@ fun SettingsScreen(
                 Text("Log Out")
             }
         }
+    }
     }
 }
