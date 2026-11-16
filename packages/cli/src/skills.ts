@@ -4,7 +4,7 @@ import path from 'node:path';
 
 export const KEYLET_SKILL_MD = `---
 name: keylet
-description: Manage Bitwarden / Vaultwarden secrets, TOTP codes, SSH keys, and zero-disk env injection via the keylet CLI. Use when a task needs credentials, API tokens, 2FA/TOTP codes, SSH signing, or running commands with injected environment variables.
+description: Manage Bitwarden / Vaultwarden secrets, TOTP codes, SSH keys, folders, vault imports, and zero-disk env injection via the keylet CLI. Use when a task needs credentials, API tokens, 2FA/TOTP codes, SSH signing, or running commands with injected environment variables.
 ---
 
 # Keylet CLI Skill
@@ -17,40 +17,62 @@ Use \`keylet\` instead of storing or reading plaintext \`.env\` secrets on disk.
 keylet auth status
 \`\`\`
 
-If locked, ask the user to unlock in their terminal (\`keylet auth unlock\`) or provide a session—never ask the user to paste their Master Password into chat unless explicitly requested.
+If locked, ask the user to unlock in their terminal (\`keylet auth unlock\`)—never ask the user to paste their Master Password into chat unless explicitly requested.
 
-## Common Workflows
+## Command Groups
 
-- **Inject secrets into a subprocess (preferred)**:
-  \`\`\`bash
-  PGPASSWORD="keylet://Postgres/password" keylet run -- node app.js
-  keylet run --from "App Env" -- npm run dev
-  \`\`\`
-- **Search / list items**:
-  \`\`\`bash
-  keylet item list --type login
-  keylet item list --json <query>
-  \`\`\`
-- **Read a single field or TOTP**:
-  \`\`\`bash
-  keylet item get <query> --field username
-  keylet item get <query> --field password
-  keylet item totp <query>
-  \`\`\`
-- **Generate a strong password**:
-  \`\`\`bash
-  keylet generate --length 24 --avoid-ambiguous
-  \`\`\`
-- **SSH keys & in-memory agent**:
-  \`\`\`bash
-  keylet ssh list
-  eval "$(keylet ssh agent)"
-  \`\`\`
-- **Import / Sync**:
-  \`\`\`bash
-  keylet vault sync
-  keylet vault import <file.1pux|file.json|file.csv>
-  \`\`\`
+### Auth & Session
+\`\`\`bash
+keylet auth login [--server <url>] [--email <email>] [--password-env <VAR>] [--2fa <code>]
+keylet auth unlock [--password-env <VAR>]
+keylet auth lock
+keylet auth logout
+keylet auth status
+\`\`\`
+
+### Items & TOTP
+\`\`\`bash
+keylet item list [--type login|note|card|ssh] [--format table|json|yaml] [--json-path <expr>] [query]
+keylet item get <query> [--field password|username|totp|public|private|notes|all] [--json-path <expr>] [--json]
+keylet item add --name <name> [--type login|note|ssh] [--username <u>] [--password <p>] [--uri <url>] [--totp <secret>] [--generate-ssh]
+keylet item rm <query> [--permanent]
+keylet item totp <query>
+\`\`\`
+
+### Folders
+\`\`\`bash
+keylet folder list [--format table|json|yaml] [--json-path <expr>]
+keylet folder add <name>
+keylet folder rm <nameOrId>
+\`\`\`
+
+### Vault Sync & Import
+Supports Bitwarden JSON/CSV, 1Password \`.1pux\` / CSV / JSON, and Chrome/Edge CSV:
+\`\`\`bash
+keylet vault sync
+keylet vault import <file.1pux|file.json|file.csv>
+\`\`\`
+
+### SSH Keys & In-Memory Agent
+\`\`\`bash
+keylet ssh add --name <name> --generate
+keylet ssh list [--format table|json|yaml] [--json-path <expr>]
+eval "$(keylet ssh agent)"
+\`\`\`
+
+### Zero-Disk Env Injection & Password Generation
+\`\`\`bash
+PGPASSWORD="keylet://Postgres/password" keylet run -- node app.js
+keylet run --from "App Env" -- npm run dev
+keylet generate --length 24 --avoid-ambiguous
+\`\`\`
+
+### Agent Skill Management
+\`\`\`bash
+keylet skills install [--global] [--dir <path>]
+keylet skills show
+keylet skills path [--global]
+\`\`\`
 
 ## Security Rules
 

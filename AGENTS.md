@@ -122,3 +122,4 @@ keylet/
 - **Verify types**: Run `tsc --noEmit` (or `npm run build`) after edits; never guess `@ui-sdk/react` prop names without checking `node_modules/@ui-sdk/react/dist/`.
 - **Test crypto thoroughly**: Every crypto helper (key stretching, EncString parsing/decrypting/encrypting, TOTP) MUST have Vitest unit tests using known Bitwarden test vectors before wiring UI.
 - **Keep UI snappy**: Popup must open and render cached/unlocked items in `< 100ms`; avoid heavy bundle bloat.
+- **Keep Agent Skill in sync**: Whenever CLI commands, flags, output formats, or supported import/secret workflows change, evaluate whether `packages/cli/src/skills.ts` (`KEYLET_SKILL_MD`) should be updated to stay accurate.
