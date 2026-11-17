@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy — Keylet</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <style>
+      :root {
+        color-scheme: dark light;
+        --bg: #0e1117;
+        --card: rgba(255, 255, 255, 0.04);
+        --border: rgba(255, 255, 255, 0.1);
+        --text: #f3f4f6;
+        --muted: #9ca3af;
+        --accent: #3b82f6;
+        --sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f4f6fb;
+          --card: rgba(255, 255, 255, 0.85);
+          --border: rgba(15, 23, 42, 0.1);
+          --text: #111827;
+          --muted: #4b5563;
+          --accent: #2563eb;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 36px 20px 64px;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        line-height: 1.65;
+      }
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 32px;
+      }
+      h1 { margin-top: 0; font-size: 28px; }
+      h2 { margin-top: 26px; font-size: 18px; }
+      p, li { color: var(--muted); font-size: 14.5px; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p><a href="./">← Back to Keylet</a></p>
+      <h1>Keylet Privacy Policy</h1>
+      <p>Effective date: November 17, 2026</p>
+
+      <h2>1. Zero Telemetry &amp; Zero Data Collection by Keylet</h2>
+      <p>
+        Keylet does not operate any backend servers, analytics services, crash-reporting pipelines,
+        or advertising trackers. We do not collect, sell, rent, or transmit your personal data,
+        master password, vault entries, or browsing history to Keylet or any third party.
+      </p>
+
+      <h2>2. End-to-End Client-Side Encryption</h2>
+      <p>
+        All encryption and decryption happen locally on your device using Web Crypto / standard
+        cryptographic primitives (PBKDF2-SHA256 or Argon2id key derivation and AES-256-CBC with
+        HMAC-SHA256 Encrypt-then-MAC). Network requests are sent exclusively to the Bitwarden or
+        self-hosted Vaultwarden server URL you explicitly configure.
+      </p>
+
+      <h2>3. Local Storage &amp; Session Memory</h2>
+      <ul>
+        <li>
+          <strong>Browser Extension:</strong> Stores only your encrypted vault snapshot and account
+          configuration in browser extension storage. Decrypted keys are kept strictly in ephemeral
+          session/worker memory and cleared when locked.
+        </li>
+        <li>
+          <strong>Android App:</strong> Stores encrypted vault data locally and uses Android
+          KeyStore / BiometricPrompt for optional quick unlock.
+        </li>
+      </ul>
+
+      <h2>4. Permissions Explanation</h2>
+      <ul>
+        <li><code>storage</code> &amp; <code>alarms</code>: Cache encrypted vault data and enforce auto-lock timers.</li>
+        <li><code>activeTab</code> &amp; host permissions: Match credentials to the active site domain and offer inline autofill or credential saving when you submit a login form.</li>
+        <li><code>clipboardWrite</code>: Copy usernames, passwords, TOTP codes, or SSH keys upon your explicit action.</li>
+        <li><code>contextMenus</code>: Provide right-click autofill actions.</li>
+        <li><strong>Website Icons:</strong> Login favicons are requested from your configured Bitwarden/Vaultwarden server's icon proxy (<code>/icons/&lt;domain&gt;/icon.png</code>) when available.</li>
+      </ul>
+
+      <h2>5. Contact</h2>
+      <p>
+        Keylet is open source at
+        <a href="https://github.com/keylet-dev/keylet">github.com/keylet-dev/keylet</a>.
+        Questions or security reports can be filed via GitHub Issues.
+      </p>
+    </main>
+  </body>
+</html>
