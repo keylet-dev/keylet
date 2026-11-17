@@ -2,7 +2,6 @@ package me.keylet.app.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,7 +9,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,26 +51,14 @@ private val DarkPalette = darkColorScheme(
     outline = KeyletColors.BorderSubtle
 )
 
-private val LightPalette = lightColorScheme(
-    primary = Color(0xFF2563EB),
-    onPrimary = Color.White,
-    background = Color(0xFFF4F6FB),
-    onBackground = Color(0xFF111827),
-    surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF111827),
-    surfaceVariant = Color(0xFFE9EEF7),
-    onSurfaceVariant = Color(0xFF4B5563),
-    error = Color(0xFFDC2626),
-    outline = Color(0x1A0F172A)
-)
-
 @Composable
 fun KeyletTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
+    // Screens use a fixed dark backdrop and dark-theme tokens, so Material
+    // controls must use the same palette regardless of the system theme.
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkPalette else LightPalette,
+        colorScheme = DarkPalette,
         content = content
     )
 }
