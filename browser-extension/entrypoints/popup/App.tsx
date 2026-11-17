@@ -56,10 +56,75 @@ function cipherSubtitle(c: MatchedCipher): string {
   return 'Secure Note';
 }
 
-function CipherAvatar({ cipher }: { cipher: MatchedCipher }) {
+function extractFaviconHost(uri?: string | null): string | null {
+  if (!uri) return null;
+  const trimmed = uri.trim();
+  if (!trimmed) return null;
+  try {
+    const withScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed)
+      ? trimmed
+      : `https://${trimmed}`;
+    const url = new URL(withScheme);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    const host = url.hostname.toLowerCase();
+    if (
+      !host ||
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      /^\d+\.\d+\.\d+\.\d+$/.test(host) ||
+      host.includes(':')
+    ) {
+      return null;
+    }
+    return host;
+  } catch {
+    return null;
+  }
+}
+
+function getCipherFaviconUrl(
+  cipher: MatchedCipher,
+  serverUrl?: string | null,
+): string | null {
+  if (cipher.type !== CipherType.Login) return null;
+  for (const u of cipher.login?.uris ?? []) {
+    const host = extractFaviconHost(u.uri);
+    if (!host) continue;
+    const base = serverUrl?.trim().replace(/\/+$/, '');
+    if (base && (base.startsWith('https://') || base.startsWith('http://localhost'))) {
+      return `${base}/icons/${encodeURIComponent(host)}/icon.png`;
+    }
+    return `https://icons.bitwarden.net/${encodeURIComponent(host)}/icon.png`;
+  }
+  return null;
+}
+
+function CipherAvatar({
+  cipher,
+  serverUrl,
+}: {
+  cipher: MatchedCipher;
+  serverUrl?: string | null;
+}) {
+  const iconUrl = getCipherFaviconUrl(cipher, serverUrl);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+
+  if (cipher.type === CipherType.Login) {
+    if (iconUrl && failedUrl !== iconUrl) {
+      return (
+        <img
+          className="cipher-favicon"
+          src={iconUrl}
+          alt=""
+          loading="lazy"
+          onError={() => setFailedUrl(iconUrl)}
+        />
+      );
+    }
+    return <>{(cipher.name.trim()[0] ?? 'K').toUpperCase()}</>;
+  }
+
   switch (cipher.type) {
-    case CipherType.Login:
-      return <>{(cipher.name.trim()[0] ?? 'K').toUpperCase()}</>;
     case CipherType.Card:
       return <CreditCard size={14} />;
     case CipherType.Identity:
@@ -405,7 +470,7 @@ export function App() {
         onClick={() => setActiveCipher(c)}
       >
         <div className="cipher-avatar">
-          <CipherAvatar cipher={c} />
+          <CipherAvatar cipher={c} serverUrl={status?.serverUrl} />
         </div>
         <div className="cipher-meta">
           <div className="cipher-title">

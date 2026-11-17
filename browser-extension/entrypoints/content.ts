@@ -296,6 +296,30 @@ export default defineContentScript({
         .item:hover .fill-hint {
           opacity: 1;
         }
+        @media (prefers-color-scheme: light) {
+          .card {
+            background: rgba(255, 255, 255, 0.92);
+            color: #111827;
+            border-color: rgba(15, 23, 42, 0.12);
+            box-shadow: 0 18px 42px rgba(15, 23, 42, 0.16), 0 0 0 1px rgba(15, 23, 42, 0.05);
+          }
+          .header {
+            background: rgba(15, 23, 42, 0.03);
+            border-bottom-color: rgba(15, 23, 42, 0.08);
+            color: #4b5563;
+          }
+          .brand { color: #111827; }
+          .item:hover { background: rgba(37, 99, 235, 0.09); }
+          .avatar {
+            background: rgba(37, 99, 235, 0.08);
+            border-color: rgba(15, 23, 42, 0.1);
+            color: #2563eb;
+          }
+          .name { color: #111827; }
+          .user { color: #4b5563; }
+          .fill-hint { color: #2563eb; }
+          .list::-webkit-scrollbar-thumb { background: rgba(15, 23, 42, 0.18); }
+        }
       `;
 
       const card = document.createElement('div');
@@ -477,6 +501,28 @@ export default defineContentScript({
           box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
         }
         .save:hover { filter: brightness(1.08); }
+        @media (prefers-color-scheme: light) {
+          .banner {
+            background: rgba(255, 255, 255, 0.92);
+            color: #111827;
+            border-color: rgba(15, 23, 42, 0.12);
+            box-shadow: 0 18px 42px rgba(15, 23, 42, 0.16), 0 0 0 1px rgba(15, 23, 42, 0.05);
+          }
+          .header {
+            background: rgba(15, 23, 42, 0.03);
+            border-bottom-color: rgba(15, 23, 42, 0.08);
+            color: #4b5563;
+          }
+          .brand { color: #111827; }
+          .title { color: #111827; }
+          .sub { color: #4b5563; }
+          .dismiss {
+            background: rgba(15, 23, 42, 0.05);
+            border-color: rgba(15, 23, 42, 0.12);
+            color: #374151;
+          }
+          .dismiss:hover { background: rgba(15, 23, 42, 0.1); }
+        }
       `;
 
       const banner = document.createElement('div');
