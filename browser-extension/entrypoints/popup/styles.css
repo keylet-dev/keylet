@@ -345,6 +345,16 @@ body {
   overflow-y: auto;
 }
 
+.panel-auth {
+  padding: 22px 36px;
+  align-items: center;
+}
+
+.panel-auth > * {
+  width: 100%;
+  max-width: 316px;
+}
+
 .field-group {
   display: flex;
   flex-direction: column;

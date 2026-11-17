@@ -66,7 +66,7 @@ export function LoginView({ onSuccess, onCancel }: LoginViewProps) {
 
   return (
     <form
-      className="panel"
+      className="panel panel-auth"
       onSubmit={(e) => {
         e.preventDefault();
         void handleSubmit();

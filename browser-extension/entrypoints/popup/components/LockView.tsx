@@ -60,7 +60,7 @@ export function LockView({
 
   return (
     <form
-      className="panel"
+      className="panel panel-auth"
       style={{ justifyContent: 'center' }}
       onSubmit={(e) => {
         e.preventDefault();
