@@ -407,14 +407,24 @@ body {
 }
 
 .panel-auth {
-  padding: 22px 36px;
+  padding: 24px 48px;
+  gap: 16px;
   align-items: center;
   justify-content: center;
 }
 
 .panel-auth > * {
   width: 100%;
-  max-width: 316px;
+  max-width: 280px;
+}
+
+.panel-auth .field-group {
+  gap: 7px;
+}
+
+.panel-auth .segmented-item {
+  font-size: 11.5px;
+  padding: 5px 4px;
 }
 
 .field-group {
