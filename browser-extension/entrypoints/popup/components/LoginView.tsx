@@ -85,8 +85,8 @@ export function LoginView({ onSuccess, onCancel }: LoginViewProps) {
         )}
         <KeyletLogo size={36} />
         <div>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>Keylet</div>
-          <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+          <div style={{ fontSize: 18, fontWeight: 600 }}>Keylet</div>
+          <div style={{ fontSize: 13.5, color: 'var(--text-secondary)' }}>
             Connect to Bitwarden or Vaultwarden
           </div>
         </div>

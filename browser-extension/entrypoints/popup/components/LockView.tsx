@@ -71,11 +71,11 @@ export function LockView({
         <div style={{ marginBottom: 10 }}>
           <KeyletLogo size={44} />
         </div>
-        <div style={{ fontSize: 15, fontWeight: 600 }}>Vault Locked</div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+        <div style={{ fontSize: 18, fontWeight: 600 }}>Vault Locked</div>
+        <div style={{ fontSize: 13.5, color: 'var(--text-secondary)', marginTop: 3 }}>
           {status.email}
         </div>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+        <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 2 }}>
           {status.serverUrl}
         </div>
       </div>
@@ -140,10 +140,10 @@ export function LockView({
                 type="button"
                 className="btn"
                 style={{
-                  height: 28,
-                  minHeight: 28,
-                  padding: '0 10px',
-                  fontSize: 11.5,
+                  height: 32,
+                  minHeight: 32,
+                  padding: '0 12px',
+                  fontSize: 12.5,
                   borderColor:
                     acc.id === status.activeAccountId
                       ? 'var(--accent)'
