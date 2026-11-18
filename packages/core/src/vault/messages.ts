@@ -62,7 +62,16 @@ export type RuntimeRequest =
       username: string;
       password: string;
       uri: string;
-    };
+    }
+  | {
+      type: 'STAGE_SAVE_LOGIN';
+      name: string;
+      username: string;
+      password: string;
+      uri: string;
+    }
+  | { type: 'GET_PENDING_SAVE'; uri: string }
+  | { type: 'DISMISS_SAVE_LOGIN' };
 
 export type RuntimeResponse<T = unknown> =
   | { ok: true; data: T }

@@ -549,13 +549,23 @@ export default defineContentScript({
       sub.className = 'sub';
       sub.textContent = `${window.location.hostname}${username ? ` · ${username}` : ''}`;
 
+      const errLine = document.createElement('div');
+      errLine.style.display = 'none';
+      errLine.style.color = '#f87171';
+      errLine.style.fontSize = '11.5px';
+      errLine.style.marginBottom = '8px';
+      errLine.style.wordBreak = 'break-word';
+
       const actions = document.createElement('div');
       actions.className = 'actions';
 
       const dismissBtn = document.createElement('button');
       dismissBtn.className = 'dismiss';
       dismissBtn.textContent = 'Not now';
-      dismissBtn.onclick = () => host.remove();
+      dismissBtn.onclick = () => {
+        void browser.runtime.sendMessage({ type: 'DISMISS_SAVE_LOGIN' }).catch(() => undefined);
+        host.remove();
+      };
 
       const saveBtn = document.createElement('button');
       saveBtn.className = 'save';
@@ -563,18 +573,33 @@ export default defineContentScript({
       saveBtn.onclick = async () => {
         saveBtn.textContent = 'Saving…';
         saveBtn.disabled = true;
-        await browser.runtime.sendMessage({
-          type: 'SAVE_LOGIN',
-          name: window.location.hostname,
-          username,
-          password,
-          uri: window.location.origin,
-        });
-        host.remove();
+        errLine.style.display = 'none';
+        try {
+          const res = (await browser.runtime.sendMessage({
+            type: 'SAVE_LOGIN',
+            name: window.location.hostname,
+            username,
+            password,
+            uri: window.location.origin,
+          })) as RuntimeResponse<boolean>;
+          if (!res?.ok) {
+            errLine.textContent = res?.error || 'Failed to save login';
+            errLine.style.display = 'block';
+            saveBtn.textContent = 'Retry';
+            saveBtn.disabled = false;
+            return;
+          }
+          host.remove();
+        } catch (err) {
+          errLine.textContent = err instanceof Error ? err.message : 'Failed to save login';
+          errLine.style.display = 'block';
+          saveBtn.textContent = 'Retry';
+          saveBtn.disabled = false;
+        }
       };
 
       actions.append(dismissBtn, saveBtn);
-      body.append(title, sub, actions);
+      body.append(title, sub, errLine, actions);
       banner.append(header, body);
       shadow.append(style, banner);
       document.documentElement.appendChild(host);
@@ -624,38 +649,90 @@ export default defineContentScript({
       }, 150);
     });
 
+    let lastStagedKey = '';
+    let lastStagedAt = 0;
+
+    async function handleCandidateSubmit(pwInput: HTMLInputElement) {
+      const password = pwInput.value;
+      if (!password) return;
+      const { usernameInput } = findLoginInputs(pwInput);
+      const username = usernameInput?.value?.trim() ?? '';
+      const key = `${window.location.origin}|${username}|${password}`;
+      const now = Date.now();
+      if (key === lastStagedKey && now - lastStagedAt < 1500) return;
+      lastStagedKey = key;
+      lastStagedAt = now;
+
+      try {
+        const res = (await browser.runtime.sendMessage({
+          type: 'STAGE_SAVE_LOGIN',
+          name: window.location.hostname,
+          username,
+          password,
+          uri: window.location.origin,
+        })) as RuntimeResponse<{ shouldPrompt: boolean }>;
+        if (res?.ok && res.data?.shouldPrompt) {
+          showSavePrompt(username, password);
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     document.addEventListener(
       'submit',
-      async (e) => {
+      (e) => {
         const form = e.target;
         if (!(form instanceof HTMLFormElement)) return;
         const pwInput = form.querySelector<HTMLInputElement>('input[type="password"]');
-        if (!pwInput?.value) return;
-
-        const { usernameInput } = findLoginInputs(pwInput);
-        const username = usernameInput?.value ?? '';
-        const password = pwInput.value;
-
-        try {
-          const res = (await browser.runtime.sendMessage({
-            type: 'GET_TAB_MATCHES',
-            tabUrl: window.location.href,
-          })) as RuntimeResponse<MatchedCipher[]>;
-
-          if (!res?.ok) return;
-          const alreadySaved = res.data.some(
-            (m) =>
-              m.login?.password === password &&
-              (!username || m.login?.username === username),
-          );
-          if (!alreadySaved) {
-            showSavePrompt(username, password);
-          }
-        } catch {
-          // ignore
+        if (pwInput?.value) {
+          void handleCandidateSubmit(pwInput);
         }
       },
       true,
     );
+
+    document.addEventListener(
+      'keydown',
+      (e) => {
+        if (e.key !== 'Enter') return;
+        if (e.target instanceof HTMLInputElement && e.target.type === 'password' && e.target.value) {
+          void handleCandidateSubmit(e.target);
+        }
+      },
+      true,
+    );
+
+    document.addEventListener(
+      'click',
+      (e) => {
+        const target = e.target as HTMLElement | null;
+        const btn = target?.closest('button, input[type="submit"], input[type="button"]');
+        if (!btn) return;
+        const scope = btn.closest('form') ?? document;
+        const pwInput = Array.from(
+          scope.querySelectorAll<HTMLInputElement>('input[type="password"]'),
+        ).find((el) => el.value.length > 0 && el.offsetParent !== null);
+        if (pwInput) {
+          void handleCandidateSubmit(pwInput);
+        }
+      },
+      true,
+    );
+
+    // Restore pending save prompt after form-submit page navigation/redirect
+    void (async () => {
+      try {
+        const res = (await browser.runtime.sendMessage({
+          type: 'GET_PENDING_SAVE',
+          uri: window.location.href,
+        })) as RuntimeResponse<{ username: string; password: string } | null>;
+        if (res?.ok && res.data?.password) {
+          showSavePrompt(res.data.username ?? '', res.data.password);
+        }
+      } catch {
+        // ignore
+      }
+    })();
   },
 });

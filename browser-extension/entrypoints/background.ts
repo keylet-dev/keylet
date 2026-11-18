@@ -7,6 +7,7 @@ import {
   type EncryptedSyncResponse,
 } from '@keylet/core';
 import {
+  ApiError,
   createCipher,
   deleteCipher,
   loginWithPassword,
@@ -497,8 +498,72 @@ async function autofillCipherInTab(
   await touchActivity();
 }
 
+const PENDING_SAVE_KEY = 'keylet_pending_saves';
+const PENDING_SAVE_TTL_MS = 2 * 60 * 1000;
+
+interface PendingSaveLogin {
+  name: string;
+  username: string;
+  password: string;
+  uri: string;
+  host: string;
+  expiresAt: number;
+}
+
+async function readPendingSaves(): Promise<Record<string, PendingSaveLogin>> {
+  const sessionApi = (browser.storage as unknown as {
+    session?: typeof browser.storage.local;
+  }).session;
+  if (!sessionApi) return {};
+  const raw = await sessionApi.get(PENDING_SAVE_KEY);
+  const map = (raw[PENDING_SAVE_KEY] as Record<string, PendingSaveLogin> | undefined) ?? {};
+  const now = Date.now();
+  const pruned: Record<string, PendingSaveLogin> = {};
+  for (const [k, v] of Object.entries(map)) {
+    if (v && v.expiresAt > now) pruned[k] = v;
+  }
+  return pruned;
+}
+
+async function writePendingSaves(map: Record<string, PendingSaveLogin>): Promise<void> {
+  const sessionApi = (browser.storage as unknown as {
+    session?: typeof browser.storage.local;
+  }).session;
+  if (!sessionApi) return;
+  await sessionApi.set({ [PENDING_SAVE_KEY]: map });
+}
+
+function getHostname(uri: string): string {
+  try {
+    return new URL(uri).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+async function withAccessTokenRetry<T>(
+  account: StoredAccount,
+  fn: (token: string) => Promise<T>,
+): Promise<T> {
+  if (!memAccessToken) throw new Error('Vault is locked');
+  try {
+    return await fn(memAccessToken);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401 && memRefreshToken) {
+      const tokens = await refreshAccessToken(account.serverUrl, memRefreshToken);
+      const nextToken = tokens.access_token;
+      memAccessToken = nextToken;
+      if (tokens.refresh_token) memRefreshToken = tokens.refresh_token;
+      await persistSession();
+      return await fn(nextToken);
+    }
+    throw err;
+  }
+}
+
 async function handleMessage(
   req: RuntimeRequest,
+  senderTabId?: number,
 ): Promise<RuntimeResponse<unknown>> {
   try {
     switch (req.type) {
@@ -673,23 +738,124 @@ async function handleMessage(
         await touchActivity();
         return { ok: true, data: await getStatus() };
       }
+      case 'STAGE_SAVE_LOGIN': {
+        await restoreSessionIfNeeded();
+        if (!memSymKey || !memAccessToken || senderTabId == null) {
+          return { ok: true, data: { shouldPrompt: false } };
+        }
+        const matches = rankCiphersForUrl(memCiphers, req.uri);
+        const alreadySaved = matches.some(
+          (m) =>
+            m.matchScore > 0 &&
+            m.type === CipherType.Login &&
+            m.login?.password === req.password &&
+            (!req.username || m.login?.username === req.username),
+        );
+        if (alreadySaved) {
+          const map = await readPendingSaves();
+          delete map[String(senderTabId)];
+          await writePendingSaves(map);
+          return { ok: true, data: { shouldPrompt: false } };
+        }
+        const host = getHostname(req.uri) || req.name;
+        const map = await readPendingSaves();
+        map[String(senderTabId)] = {
+          name: req.name,
+          username: req.username,
+          password: req.password,
+          uri: req.uri,
+          host,
+          expiresAt: Date.now() + PENDING_SAVE_TTL_MS,
+        };
+        await writePendingSaves(map);
+        return { ok: true, data: { shouldPrompt: true } };
+      }
+      case 'GET_PENDING_SAVE': {
+        await restoreSessionIfNeeded();
+        if (!memSymKey || senderTabId == null) {
+          return { ok: true, data: null };
+        }
+        const map = await readPendingSaves();
+        const pending = map[String(senderTabId)];
+        if (!pending) return { ok: true, data: null };
+        const currentHost = getHostname(req.uri);
+        if (
+          currentHost &&
+          pending.host &&
+          currentHost !== pending.host &&
+          !currentHost.endsWith(`.${pending.host}`) &&
+          !pending.host.endsWith(`.${currentHost}`)
+        ) {
+          return { ok: true, data: null };
+        }
+        return { ok: true, data: pending };
+      }
+      case 'DISMISS_SAVE_LOGIN': {
+        if (senderTabId != null) {
+          const map = await readPendingSaves();
+          delete map[String(senderTabId)];
+          await writePendingSaves(map);
+        }
+        return { ok: true, data: true };
+      }
       case 'SAVE_LOGIN': {
         await restoreSessionIfNeeded();
         const account = await getStoredAccount();
         if (!account || !memSymKey || !memAccessToken) {
           throw new Error('Vault is locked');
         }
-        const payload = await encryptNewLoginCipher(
-          {
-            name: req.name,
-            username: req.username,
-            password: req.password,
-            uri: req.uri,
-          },
-          memSymKey,
+        const existing = rankCiphersForUrl(memCiphers, req.uri).find(
+          (m) =>
+            m.matchScore > 0 &&
+            m.type === CipherType.Login &&
+            (req.username
+              ? (m.login?.username ?? '').toLowerCase() === req.username.toLowerCase()
+              : !m.login?.username),
         );
-        await createCipher(account.serverUrl, memAccessToken, payload);
+        if (existing) {
+          const payload = await encryptCipherPayload(
+            {
+              type: CipherType.Login,
+              name: existing.name,
+              notes: existing.notes,
+              favorite: existing.favorite,
+              folderId: existing.folderId,
+              fields: existing.fields,
+              login: {
+                username: req.username || existing.login?.username || null,
+                password: req.password,
+                totp: existing.login?.totp ?? null,
+                uris: existing.login?.uris?.length
+                  ? existing.login.uris
+                  : [{ uri: req.uri, match: null }],
+              },
+            },
+            memSymKey,
+          );
+          await withAccessTokenRetry(account, (token) =>
+            updateCipher(account.serverUrl, token, existing.id, payload),
+          );
+        } else {
+          const payload = await encryptNewLoginCipher(
+            {
+              name: req.name,
+              username: req.username,
+              password: req.password,
+              uri: req.uri,
+            },
+            memSymKey,
+          );
+          await withAccessTokenRetry(account, (token) =>
+            createCipher(account.serverUrl, token, payload),
+          );
+        }
+        if (senderTabId != null) {
+          const map = await readPendingSaves();
+          delete map[String(senderTabId)];
+          await writePendingSaves(map);
+        }
         await performSync(account);
+        await touchActivity();
         return { ok: true, data: true };
       }
       default:
@@ -711,8 +877,8 @@ async function handleMessage(
 }
 
 export default defineBackground(() => {
-  browser.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    handleMessage(msg as RuntimeRequest).then(sendResponse);
+  browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    handleMessage(msg as RuntimeRequest, sender.tab?.id).then(sendResponse);
     return true;
   });
 
